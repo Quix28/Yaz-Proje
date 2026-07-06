@@ -34,6 +34,13 @@ MOTOR_FORCE_MAX = NEMA17_HOLDING_TORQUE * DYNAMIC_DERATE / GT2_PULLEY_RADIUS  # 
 MOTOR_MAX_RPM = 600
 MOTOR_FREE_SPEED = MOTOR_MAX_RPM * 2 * np.pi / 60 * GT2_PULLEY_RADIUS  # ~0.4 m/s
 
+# smoothing width for the tanh(qdot/eps) approximation to sign(qdot) in
+# the Coulomb friction term -- MUST match dynamics.py so the solver's
+# model is identical to the plant (any mismatch here makes the reference
+# trajectory dynamically inconsistent with the plant, which then diverges
+# under tracking). See dynamics.py for why 0.05 rather than a sharper value.
+FRICTION_EPS = 0.05
+
 
 def _dynamics(x, u, p):
     s, th1, th2, sdot, th1dot, th2dot = ca.vertsplit(x)
@@ -41,7 +48,10 @@ def _dynamics(x, u, p):
     m1, m2, l1, l2 = p['m1'], p['m2'], p['l1'], p['l2']
     I1, I2, M = p['I1'], p['I2'], p['M']
     g = p.get('g', 9.81)
-    b0, b1, b2 = p.get('b0', 0.0), p.get('b1', 0.0), p.get('b2', 0.0)
+    b0, b1, b2 = p.get('b0', 0.02), p.get('b1', 0.0008), p.get('b2', 0.0008)
+    cf0, cf1, cf2 = p.get('cf0', 0.05), p.get('cf1', 0.0025), p.get('cf2', 0.0025)
+    m_enc1 = p.get('m_enc1', 0.18)  # theta1 encoder, on the cart
+    m_enc2 = p.get('m_enc2', 0.18)  # theta2 encoder, at the joint (rotates with th1 only)
     lc1 = p.get('lc1', l1 / 2)
     lc2 = p.get('lc2', l2 / 2)
 
@@ -50,10 +60,13 @@ def _dynamics(x, u, p):
     c12 = ca.cos(th1 - th2)
     s12 = ca.sin(th1 - th2)
 
-    M11 = M + m1 + m2
-    M12 = (m1 * lc1 + m2 * l1) * c1
+    M_eff = M + m_enc1
+    m2_l1 = m2 + m_enc2
+
+    M11 = M_eff + m1 + m2_l1
+    M12 = (m1 * lc1 + m2_l1 * l1) * c1
     M13 = m2 * lc2 * c2
-    M22 = m1 * lc1**2 + m2 * l1**2 + I1
+    M22 = m1 * lc1**2 + m2_l1 * l1**2 + I1
     M23 = m2 * l1 * lc2 * c12
     M33 = m2 * lc2**2 + I2
 
@@ -63,13 +76,17 @@ def _dynamics(x, u, p):
         ca.horzcat(M13, M23, M33),
     )
 
-    rhs_s = (u - b0 * sdot
-             + (m1 * lc1 + m2 * l1) * s1 * th1dot**2
+    fric_s = b0 * sdot + cf0 * ca.tanh(sdot / FRICTION_EPS)
+    fric_th1 = b1 * th1dot + cf1 * ca.tanh(th1dot / FRICTION_EPS)
+    fric_th2 = b2 * th2dot + cf2 * ca.tanh(th2dot / FRICTION_EPS)
+
+    rhs_s = (u - fric_s
+             + (m1 * lc1 + m2_l1 * l1) * s1 * th1dot**2
              + m2 * lc2 * s2 * th2dot**2)
-    rhs_th1 = (-b1 * th1dot
+    rhs_th1 = (-fric_th1
                - m2 * l1 * lc2 * s12 * th2dot**2
-               + (m1 * lc1 + m2 * l1) * g * s1)
-    rhs_th2 = (-b2 * th2dot
+               + (m1 * lc1 + m2_l1 * l1) * g * s1)
+    rhs_th2 = (-fric_th2
                + m2 * l1 * lc2 * s12 * th1dot**2
                + m2 * lc2 * g * s2)
 
@@ -199,8 +216,12 @@ class MPCController:
 
 if __name__ == "__main__":
     params = dict(
-        m1=0.2, m2=0.15, l1=0.3, l2=0.25, M=1.0,
-        I1=0.2 * 0.3**2 / 12, I2=0.15 * 0.25**2 / 12,
+        # m1, m2 are rod-only mass -- encoder mass (180g each) tracked
+        # separately via m_enc1 (on the cart) / m_enc2 (at the joint,
+        # rotates with th1 only)
+        m1=0.12, m2=0.09, l1=0.3, l2=0.25, M=1.0,
+        m_enc1=0.18, m_enc2=0.18,
+        I1=0.12 * 0.3**2 / 12, I2=0.09 * 0.25**2 / 12,
     )
     ctrl = MPCController(params, Np=20, dt=0.05, s_max=0.18)
 
