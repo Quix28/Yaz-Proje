@@ -12,7 +12,7 @@ import numpy as np
 import torch
 
 from dynamics import forward_dynamics
-from mpc import MPCController
+from mpc import MPCController, MOTOR_FORCE_MAX
 
 
 def _rk4_step_torch(state, u, params, dt):
@@ -23,7 +23,7 @@ def _rk4_step_torch(state, u, params, dt):
     return state + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
 
 
-def run(params, x0, Np=20, dt=0.05, steps=120, s_max=0.23, u_max=12.0):
+def run(params, x0, Np=20, dt=0.05, steps=120, s_max=0.18, u_max=MOTOR_FORCE_MAX):
     ctrl = MPCController(params, Np=Np, dt=dt, s_max=s_max, u_max=u_max)
 
     x = np.asarray(x0, dtype=np.float64)
