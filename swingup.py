@@ -190,8 +190,12 @@ def run(params, x0, swingup_dt=0.002, mpc_dt=0.05, swingup_time=20.0,
 
 if __name__ == "__main__":
     params = dict(
-        m1=0.2, m2=0.15, l1=0.3, l2=0.25, M=1.0,
-        I1=0.2 * 0.3 ** 2 / 12, I2=0.15 * 0.25 ** 2 / 12,
+        # m1, m2 are rod-only mass -- encoder mass (180g each) tracked
+        # separately via m_enc1 (on the cart) / m_enc2 (at the joint,
+        # rotates with th1 only)
+        m1=0.12, m2=0.09, l1=0.3, l2=0.25, M=1.0,
+        m_enc1=0.18, m_enc2=0.18,
+        I1=0.12 * 0.3 ** 2 / 12, I2=0.09 * 0.25 ** 2 / 12,
     )
     x0 = [0.0, np.pi, np.pi, 0.0, 0.0, 0.0]  # both links hanging down
 

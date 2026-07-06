@@ -73,8 +73,16 @@ def solve_swingup_trajectory(params, x0, xf, Np=150, dt=0.05, s_max=0.18,
     opti.set_initial(X, X_guess)
     opti.set_initial(U, np.zeros((1, Np)))
 
+    # acceptable_* options let IPOPT certify a near-optimal point instead
+    # of iterating to max_iter chasing a tighter KKT residual -- the
+    # smoothed-Coulomb friction makes the last few digits of convergence
+    # expensive, and a point that's optimal "to acceptable level" for a
+    # few iterations in a row is more than good enough as a TVLQR
+    # reference. Kept strict enough (1e-6) that the trajectory is still
+    # dynamically consistent, not a loose approximation.
     opti.solver('ipopt', {'print_time': 0},
-                {'print_level': 0, 'sb': 'yes', 'max_iter': max_iter})
+                {'print_level': 0, 'sb': 'yes', 'max_iter': max_iter,
+                 'acceptable_tol': 1e-6, 'acceptable_iter': 10})
     try:
         sol = opti.solve()
         return sol.value(X), sol.value(U), True
@@ -83,6 +91,7 @@ def solve_swingup_trajectory(params, x0, xf, Np=150, dt=0.05, s_max=0.18,
 
 
 def _linearize_fns(params, dt):
+    """CasADi-based Jacobian computation for TVLQR."""
     x = ca.MX.sym('x', NX)
     u = ca.MX.sym('u')
     x_next = _rk4_step(x, u, params, dt)
@@ -95,11 +104,12 @@ def tvlqr_gains(params, X_ref, U_ref, dt, Q, R, Qf):
     """
     Backward Riccati recursion for time-varying LQR feedback gains
     around the reference trajectory. Necessary because this trajectory
-    passes through the unstable inverted equilibrium -- confirmed by
-    testing: replaying U_ref open-loop diverges (final th2 off by ~13
-    rad) since tiny numerical mismatch between the CasADi and torch RK4
-    implementations gets chaotically amplified with no feedback to
-    correct it.
+    passes through the unstable inverted equilibrium: replaying U_ref
+    open-loop diverges since tiny numerical noise gets chaotically
+    amplified with no feedback to correct it. CasADi linearization is
+    valid here because mpc.py's _rk4_step and dynamics.py's plant are
+    kept bit-identical (verified: RK4 step diff == 0) -- if they ever
+    diverge again, the gains would be computed for the wrong system.
     """
     A_fun, B_fun = _linearize_fns(params, dt)
     Np = U_ref.shape[0]
@@ -109,7 +119,7 @@ def tvlqr_gains(params, X_ref, U_ref, dt, Q, R, Qf):
         A = np.array(A_fun(X_ref[:, k], U_ref[k]))
         B = np.array(B_fun(X_ref[:, k], U_ref[k])).reshape(NX, 1)
         S_BB = R + B.T @ S @ B
-        K = np.linalg.solve(S_BB, B.T @ S @ A)  # (1,6)
+        K = np.linalg.solve(S_BB, B.T @ S @ A)
         Ks[k] = K
         S = Q + A.T @ S @ A - A.T @ S @ B @ K
     return Ks
@@ -122,7 +132,8 @@ def track_trajectory(params, X_ref, U_ref, dt, s_max=0.18,
     u_k = u_ref[k] - K_k @ (x_k - x_ref[k]) with time-varying LQR gains
     computed around the reference. Feedforward (U_ref) does the bulk of
     the work; the TVLQR term corrects small deviations before they can
-    compound through the unstable region near upright.
+    compound through the unstable region near upright. Requires mpc.py's
+    solver model to match this plant (see tvlqr_gains docstring).
     """
     import torch
     from dynamics import forward_dynamics
@@ -161,8 +172,12 @@ def track_trajectory(params, X_ref, U_ref, dt, s_max=0.18,
 
 if __name__ == "__main__":
     params = dict(
-        m1=0.2, m2=0.15, l1=0.3, l2=0.25, M=1.0,
-        I1=0.2 * 0.3 ** 2 / 12, I2=0.15 * 0.25 ** 2 / 12,
+        # m1, m2 are rod-only mass -- encoder mass (180g each) tracked
+        # separately via m_enc1 (on the cart) / m_enc2 (at the joint,
+        # rotates with th1 only)
+        m1=0.12, m2=0.09, l1=0.3, l2=0.25, M=1.0,
+        m_enc1=0.18, m_enc2=0.18,
+        I1=0.12 * 0.3 ** 2 / 12, I2=0.09 * 0.25 ** 2 / 12,
     )
     x0 = np.array([0.0, np.pi, np.pi, 0.0, 0.0, 0.0])  # both links hanging down
     xf = np.zeros(6)
