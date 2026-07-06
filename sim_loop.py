@@ -12,7 +12,7 @@ import numpy as np
 import torch
 
 from dynamics import forward_dynamics
-from mpc import MPCController
+from mpc import MPCController, MOTOR_FORCE_MAX
 
 
 def _rk4_step_torch(state, u, params, dt):
@@ -23,7 +23,7 @@ def _rk4_step_torch(state, u, params, dt):
     return state + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
 
 
-def run(params, x0, Np=20, dt=0.05, steps=120, s_max=0.23, u_max=12.0):
+def run(params, x0, Np=20, dt=0.05, steps=120, s_max=0.18, u_max=MOTOR_FORCE_MAX):
     ctrl = MPCController(params, Np=Np, dt=dt, s_max=s_max, u_max=u_max)
 
     x = np.asarray(x0, dtype=np.float64)
@@ -44,8 +44,12 @@ def run(params, x0, Np=20, dt=0.05, steps=120, s_max=0.23, u_max=12.0):
 
 if __name__ == "__main__":
     params = dict(
-        m1=0.2, m2=0.15, l1=0.3, l2=0.25, M=1.0,
-        I1=0.2 * 0.3**2 / 12, I2=0.15 * 0.25**2 / 12,
+        # m1, m2 are rod-only mass -- encoder mass (180g each) tracked
+        # separately via m_enc1 (on the cart) / m_enc2 (at the joint,
+        # rotates with th1 only)
+        m1=0.12, m2=0.09, l1=0.3, l2=0.25, M=1.0,
+        m_enc1=0.18, m_enc2=0.18,
+        I1=0.12 * 0.3**2 / 12, I2=0.09 * 0.25**2 / 12,
     )
     x0 = [0.0, np.pi, np.pi, 0.0, 0.0, 0.0]  # both links hanging down
 
