@@ -27,15 +27,12 @@ def _mass_matrix(th1, th2, p):
     m1, m2, l1, l2 = p['m1'], p['m2'], p['l1'], p['l2']
     I1, I2, M = p['I1'], p['I2'], p['M']
     lc1, lc2 = p.get('lc1', l1 / 2), p.get('lc2', l2 / 2)
-    m_enc1, m_enc2 = p.get('m_enc1', 0.18), p.get('m_enc2', 0.18)
     c1, c2 = np.cos(th1), np.cos(th2)
     c12 = np.cos(th1 - th2)
-    M_eff = M + m_enc1
-    m2_l1 = m2 + m_enc2
-    M11 = M_eff + m1 + m2_l1
-    M12 = (m1 * lc1 + m2_l1 * l1) * c1
+    M11 = M + m1 + m2
+    M12 = (m1 * lc1 + m2 * l1) * c1
     M13 = m2 * lc2 * c2
-    M22 = m1 * lc1 ** 2 + m2_l1 * l1 ** 2 + I1
+    M22 = m1 * lc1 ** 2 + m2 * l1 ** 2 + I1
     M23 = m2 * l1 * lc2 * c12
     M33 = m2 * lc2 ** 2 + I2
     return np.array([[M11, M12, M13], [M12, M22, M23], [M13, M23, M33]])
@@ -45,9 +42,7 @@ def _potential(th1, th2, p):
     m1, m2, l1 = p['m1'], p['m2'], p['l1']
     lc1, lc2 = p.get('lc1', p['l1'] / 2), p.get('lc2', p['l2'] / 2)
     g = p.get('g', 9.81)
-    m_enc2 = p.get('m_enc2', 0.18)
-    m2_l1 = m2 + m_enc2
-    return m1 * g * lc1 * np.cos(th1) + m2_l1 * g * l1 * np.cos(th1) + m2 * g * lc2 * np.cos(th2)
+    return m1 * g * lc1 * np.cos(th1) + m2 * g * (l1 * np.cos(th1) + lc2 * np.cos(th2))
 
 
 def energy(state, p):
@@ -195,12 +190,8 @@ def run(params, x0, swingup_dt=0.002, mpc_dt=0.05, swingup_time=20.0,
 
 if __name__ == "__main__":
     params = dict(
-        # m1, m2 are rod-only mass -- encoder mass (180g each) tracked
-        # separately via m_enc1 (on the cart) / m_enc2 (at the joint,
-        # rotates with th1 only)
-        m1=0.12, m2=0.09, l1=0.3, l2=0.25, M=1.0,
-        m_enc1=0.18, m_enc2=0.18,
-        I1=0.12 * 0.3 ** 2 / 12, I2=0.09 * 0.25 ** 2 / 12,
+        m1=0.2, m2=0.15, l1=0.3, l2=0.25, M=1.0,
+        I1=0.2 * 0.3 ** 2 / 12, I2=0.15 * 0.25 ** 2 / 12,
     )
     x0 = [0.0, np.pi, np.pi, 0.0, 0.0, 0.0]  # both links hanging down
 

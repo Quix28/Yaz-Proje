@@ -73,16 +73,8 @@ def solve_swingup_trajectory(params, x0, xf, Np=150, dt=0.05, s_max=0.18,
     opti.set_initial(X, X_guess)
     opti.set_initial(U, np.zeros((1, Np)))
 
-    # acceptable_* options let IPOPT certify a near-optimal point instead
-    # of iterating to max_iter chasing a tighter KKT residual -- the
-    # smoothed-Coulomb friction makes the last few digits of convergence
-    # expensive, and a point that's optimal "to acceptable level" for a
-    # few iterations in a row is more than good enough as a TVLQR
-    # reference. Kept strict enough (1e-6) that the trajectory is still
-    # dynamically consistent, not a loose approximation.
     opti.solver('ipopt', {'print_time': 0},
-                {'print_level': 0, 'sb': 'yes', 'max_iter': max_iter,
-                 'acceptable_tol': 1e-6, 'acceptable_iter': 10})
+                {'print_level': 0, 'sb': 'yes', 'max_iter': max_iter})
     try:
         sol = opti.solve()
         return sol.value(X), sol.value(U), True
@@ -169,12 +161,8 @@ def track_trajectory(params, X_ref, U_ref, dt, s_max=0.18,
 
 if __name__ == "__main__":
     params = dict(
-        # m1, m2 are rod-only mass -- encoder mass (180g each) tracked
-        # separately via m_enc1 (on the cart) / m_enc2 (at the joint,
-        # rotates with th1 only)
-        m1=0.12, m2=0.09, l1=0.3, l2=0.25, M=1.0,
-        m_enc1=0.18, m_enc2=0.18,
-        I1=0.12 * 0.3 ** 2 / 12, I2=0.09 * 0.25 ** 2 / 12,
+        m1=0.2, m2=0.15, l1=0.3, l2=0.25, M=1.0,
+        I1=0.2 * 0.3 ** 2 / 12, I2=0.15 * 0.25 ** 2 / 12,
     )
     x0 = np.array([0.0, np.pi, np.pi, 0.0, 0.0, 0.0])  # both links hanging down
     xf = np.zeros(6)
