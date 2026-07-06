@@ -1,7 +1,12 @@
 """
-Animate a closed-loop MPC run (sim_loop.py) -- cart + double pendulum
-on the rail, viewed from the side. theta measured from vertical-up, so
-link tip = pivot + l*(sin(theta), cos(theta)).
+Animate a swing-up run -- cart + double pendulum on the rail, viewed
+from the side. theta measured from vertical-up, so link tip = pivot +
+l*(sin(theta), cos(theta)).
+
+Uses trajectory.py (offline direct-collocation BVP + TVLQR tracking),
+the swing-up approach that actually converges to upright -- swingup.py's
+energy-shaping heuristic plateaus short of it (see trajectory.py's
+docstring for why).
 
 Run directly for a live matplotlib window. Pass --save path.gif to also
 write an animated gif (works headless, no display needed).
@@ -13,12 +18,14 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.patches import Rectangle
 
-from sim_loop import run
+from trajectory import solve_swingup_trajectory, track_trajectory
 
-CART_W, CART_H = 0.12, 0.06
+# cart footprint assumed ~8cm (MGN12 carriage + motor mount) -- adjust
+# once actual carriage width is measured
+CART_W, CART_H = 0.08, 0.05
 
 
-def animate(log, params, s_max=0.23, track_max=0.4, dt=0.05, save_path=None, fps=None):
+def animate(log, params, s_max=0.18, track_max=0.25, dt=0.05, save_path=None, fps=None):
     l1, l2 = params["l1"], params["l2"]
 
     S = np.array([row[1] for row in log])
@@ -67,9 +74,13 @@ def animate(log, params, s_max=0.23, track_max=0.4, dt=0.05, save_path=None, fps
         cart.set_xy((p0[0] - CART_W / 2, -CART_H / 2))
         link1_line.set_data([p0[0], p1[0]], [p0[1], p1[1]])
         link2_line.set_data([p1[0], p2[0]], [p1[1], p2[1]])
+        
+        mode_str = f" [{log[i][8]}]" if len(log[i]) > 8 else ""
+        t_val = log[i][0] if len(log[i]) > 0 else i * dt
+        
         info_text.set_text(
-            f"t={i * dt:5.2f}s  s={S[i]:+.3f}m  th1={TH1[i]:+.2f}  "
-            f"th2={TH2[i]:+.2f}  u={U[i]:+.1f}"
+            f"t={t_val:5.2f}s  s={S[i]:+.3f}m  th1={TH1[i]:+.2f}  "
+            f"th2={TH2[i]:+.2f}  u={U[i]:+.1f}{mode_str}"
         )
         return cart, link1_line, link2_line, info_text
 
@@ -94,14 +105,31 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     params = dict(
-        m1=0.2, m2=0.15, l1=0.3, l2=0.25, M=1.0,
-        I1=0.2 * 0.3 ** 2 / 12, I2=0.15 * 0.25 ** 2 / 12,
+        # m1, m2 are rod-only mass -- encoder mass (180g each) tracked
+        # separately via m_enc1 (on the cart) / m_enc2 (at the joint,
+        # rotates with th1 only)
+        m1=0.12, m2=0.09, l1=0.3, l2=0.25, M=1.0,
+        m_enc1=0.18, m_enc2=0.18,
+        I1=0.12 * 0.3 ** 2 / 12, I2=0.09 * 0.25 ** 2 / 12,
     )
-    x0 = [0.0, np.pi, np.pi, 0.0, 0.0, 0.0]  # both links hanging down
+    x0 = np.array([0.0, np.pi, np.pi, 0.0, 0.0, 0.0])  # both links hanging down
+    xf = np.zeros(6)
     dt = 0.05
 
-    log = run(params, x0, Np=20, dt=dt, steps=120, s_max=0.23, u_max=12.0)
-    fig, anim = animate(log, params, s_max=0.23, dt=dt, save_path=args.save)
+    print("solving offline swing-up trajectory (direct collocation)...")
+    X_ref, U_ref, ok = solve_swingup_trajectory(params, x0, xf, Np=150, dt=dt, s_max=0.18)
+    print(f"solve success: {ok}")
+
+    print("tracking with TVLQR against the dynamics.py plant...")
+    X_track = track_trajectory(params, X_ref, U_ref, dt, s_max=0.18)
+
+    log = []
+    for k in range(X_track.shape[1]):
+        s, th1, th2, sdot, th1dot, th2dot = X_track[:, k]
+        u = U_ref[k] if k < len(U_ref) else 0.0
+        log.append((k * dt, s, th1, th2, sdot, th1dot, th2dot, u))
+
+    fig, anim = animate(log, params, s_max=0.18, track_max=0.25, dt=dt, save_path=args.save)
 
     if not args.no_show:
         plt.show()
