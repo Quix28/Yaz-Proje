@@ -14,16 +14,18 @@ import numpy as np
 NX = 6  # s, th1, th2, sdot, th1dot, th2dot
 NU = 1
 
-# NEMA17 stepper, GT2 belt direct-drive (20-tooth pulley, no gearbox) --
-# standard drivetrain for this rig type. Adjust constants if yours differs
-# (different pulley, geared motor, lead screw, etc).
-NEMA17_HOLDING_TORQUE = 0.40   # N*m, typical standard NEMA17 (e.g. 17HS4401)
+# NEMA23 stepper (57HS82-4008A08-D21), GT2 belt direct-drive (20-tooth
+# pulley, no gearbox). Adjust constants if yours differs (different pulley,
+# geared motor, lead screw, etc).
+NEMA23_HOLDING_TORQUE = 2.1    # N*m, 57HS82-4008A08-D21 (~21 kg*cm, 4.0A) --
+                               # catalog spec, confirm against your unit's
+                               # datasheet; 57HS82 variants run ~2.0-2.2 N*m
 GT2_PULLEY_RADIUS = 0.006366   # m, 20-tooth GT2 pulley pitch radius
 DYNAMIC_DERATE = 0.5           # holding-torque -> usable dynamic torque;
                                # steppers lose torque with speed (back-EMF)
                                # and skip steps if driven at rated holding
                                # torque continuously -- 50% margin against that
-MOTOR_FORCE_MAX = NEMA17_HOLDING_TORQUE * DYNAMIC_DERATE / GT2_PULLEY_RADIUS  # ~31.4 N
+MOTOR_FORCE_MAX = NEMA23_HOLDING_TORQUE * DYNAMIC_DERATE / GT2_PULLEY_RADIUS  # ~165 N
 
 # Steppers have essentially zero holding torque left well before their
 # absolute max RPM -- 600 RPM is a rough ceiling for *reliable, in-torque*
@@ -181,7 +183,19 @@ class MPCController:
             opti.subject_to(opti.bounded(-thdot_max, X[4, :], thdot_max))
             opti.subject_to(opti.bounded(-thdot_max, X[5, :], thdot_max))
 
-        opti.solver('ipopt', {'print_time': 0}, {'print_level': 0, 'sb': 'yes'})
+        # mu_strategy=adaptive + gradient scaling: the NEMA23 force ceiling
+        # (~165 N) is large relative to this small cart's tight velocity/
+        # position bounds, so the regulation NLP is over-actuated and badly
+        # scaled -- the default monotone barrier stalls (Maximum_Iterations
+        # _Exceeded even at 5000 iters). Adaptive barrier + gradient scaling
+        # converges in a few hundred. acceptable_* certifies a near-optimal
+        # point if the last digits of convergence get expensive.
+        opti.solver('ipopt', {'print_time': 0},
+                    {'print_level': 0, 'sb': 'yes',
+                     'mu_strategy': 'adaptive',
+                     'nlp_scaling_method': 'gradient-based',
+                     'max_iter': 3000,
+                     'acceptable_tol': 1e-6, 'acceptable_iter': 15})
 
         self.opti = opti
         self.X, self.U = X, U
