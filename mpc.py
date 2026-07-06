@@ -3,16 +3,36 @@ MPC teacher for cart + double inverted pendulum. CasADi + IPOPT,
 multiple shooting, RK4 discretization. Dynamics ported from dynamics.py
 (same mass matrix / rhs terms, CasADi symbolics instead of torch).
 
-Control u: net force on cart [N], not motor voltage -- voltage->force
-mapping deferred to actuator model post system-ID (CLAUDE.md Step 7).
-u_max=12 here is a placeholder bound carried over from the 12V spec;
-swap in real force limit once motor constants (Kt, Kb, R, r) are known.
+Control u: net force on cart [N], not motor voltage -- full electrical
+actuator model (Kt, Kb, R) still deferred to post system-ID (CLAUDE.md
+Step 7). MOTOR_FORCE_MAX below is a catalog-spec estimate, not measured
+on your actual unit -- replace once you have real numbers.
 """
 import casadi as ca
 import numpy as np
 
 NX = 6  # s, th1, th2, sdot, th1dot, th2dot
 NU = 1
+
+# NEMA17 stepper, GT2 belt direct-drive (20-tooth pulley, no gearbox) --
+# standard drivetrain for this rig type. Adjust constants if yours differs
+# (different pulley, geared motor, lead screw, etc).
+NEMA17_HOLDING_TORQUE = 0.40   # N*m, typical standard NEMA17 (e.g. 17HS4401)
+GT2_PULLEY_RADIUS = 0.006366   # m, 20-tooth GT2 pulley pitch radius
+DYNAMIC_DERATE = 0.5           # holding-torque -> usable dynamic torque;
+                               # steppers lose torque with speed (back-EMF)
+                               # and skip steps if driven at rated holding
+                               # torque continuously -- 50% margin against that
+MOTOR_FORCE_MAX = NEMA17_HOLDING_TORQUE * DYNAMIC_DERATE / GT2_PULLEY_RADIUS  # ~31.4 N
+
+# Steppers have essentially zero holding torque left well before their
+# absolute max RPM -- 600 RPM is a rough ceiling for *reliable, in-torque*
+# operation with a common driver (A4988/DRV8825 class), not the motor's
+# theoretical no-load top speed. Translate through the same pulley to get
+# a linear cart-speed ceiling, and derate available force to zero as the
+# cart approaches it (crude linear torque-speed curve).
+MOTOR_MAX_RPM = 600
+MOTOR_FREE_SPEED = MOTOR_MAX_RPM * 2 * np.pi / 60 * GT2_PULLEY_RADIUS  # ~0.4 m/s
 
 
 def _dynamics(x, u, p):
@@ -76,13 +96,36 @@ class MPCController:
 
     def __init__(self, params, Np=20, dt=0.05,
                  Q=None, R=1e-2, Qf=None,
-                 s_max=0.23, u_max=12.0,
-                 sdot_max=None, thdot_max=None):
+                 s_max=0.18, u_max=MOTOR_FORCE_MAX,
+                 sdot_max=None, thdot_max=None, sddot_max=None):
+        # s_max default assumes 50cm MGN12 rail (physical +-0.25m from
+        # center) minus ~8cm cart footprint minus 3cm safety buffer per
+        # side -- tighten/loosen once actual carriage width is measured.
+        #
+        # sddot_max default: derived from MOTOR_FORCE_MAX and this
+        # instance's own total moving mass (M + m1 + m2), i.e. the max
+        # acceleration the motor could impart if it were the only force
+        # acting. Enforced separately from u_max below because pendulum
+        # coupling terms (centrifugal/gravity reaction through the links)
+        # can push actual cart acceleration above force/mass alone.
+        #
+        # sdot_max default: MOTOR_FREE_SPEED -- a stepper's usable torque
+        # collapses well before its absolute top RPM, so cart speed is
+        # capped there and available force is derated to zero as it's
+        # approached (see u_avail_k below), rather than staying flat at
+        # u_max regardless of how fast the cart is already moving.
         self.Np = Np
         self.dt = dt
         self.params = params
         self.s_max = s_max
         self.u_max = u_max
+        if sddot_max is None:
+            total_mass = params['M'] + params['m1'] + params['m2']
+            sddot_max = MOTOR_FORCE_MAX / total_mass
+        self.sddot_max = sddot_max
+        if sdot_max is None:
+            sdot_max = MOTOR_FREE_SPEED
+        self.sdot_max = sdot_max
 
         if Q is None:
             Q = np.diag([50.0, 200.0, 200.0, 1.0, 5.0, 5.0])
@@ -102,15 +145,21 @@ class MPCController:
             J += ca.mtimes([dx.T, Q, dx]) + R * U[0, k]**2
             opti.subject_to(X[:, k + 1] == _rk4_step(X[:, k], U[0, k], params, dt))
 
+            xdot_k = _dynamics(X[:, k], U[0, k], params)
+            opti.subject_to(opti.bounded(-sddot_max, xdot_k[3], sddot_max))
+
+            # torque-speed derate: force available shrinks to 0 as cart
+            # speed approaches sdot_max (crude linear stepper torque curve)
+            u_avail_k = u_max * (1 - (X[3, k] / sdot_max) ** 2)
+            opti.subject_to(opti.bounded(-u_avail_k, U[0, k], u_avail_k))
+
         dxN = X[:, Np] - xref_param
         J += ca.mtimes([dxN.T, Qf, dxN])
         opti.minimize(J)
 
         opti.subject_to(X[:, 0] == x0_param)
         opti.subject_to(opti.bounded(-s_max, X[0, :], s_max))
-        opti.subject_to(opti.bounded(-u_max, U[0, :], u_max))
-        if sdot_max is not None:
-            opti.subject_to(opti.bounded(-sdot_max, X[3, :], sdot_max))
+        opti.subject_to(opti.bounded(-sdot_max, X[3, :], sdot_max))
         if thdot_max is not None:
             opti.subject_to(opti.bounded(-thdot_max, X[4, :], thdot_max))
             opti.subject_to(opti.bounded(-thdot_max, X[5, :], thdot_max))
@@ -153,7 +202,7 @@ if __name__ == "__main__":
         m1=0.2, m2=0.15, l1=0.3, l2=0.25, M=1.0,
         I1=0.2 * 0.3**2 / 12, I2=0.15 * 0.25**2 / 12,
     )
-    ctrl = MPCController(params, Np=20, dt=0.05, s_max=0.23, u_max=12.0)
+    ctrl = MPCController(params, Np=20, dt=0.05, s_max=0.18)
 
     # both links hanging straight down (stable equilibrium under gravity) --
     # swing-up task, not small-angle stabilization
