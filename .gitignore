@@ -1,3 +1,9 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# Agent/IDE config — local only, not for version control
+.agents/
+agent/
+.claude/
+skills-lock.json
