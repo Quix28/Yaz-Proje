@@ -99,17 +99,23 @@ def generate_for_config(args):
 
 
 def generate_dataset(n_configs=None, n_states=None, seed=None,
-                     n_workers=None, out_path=None, verbose=True):
+                     n_workers=None, out_path=None, norm_out_path=None,
+                     verbose=True):
     """
     Generate and save the seed dataset. Returns the assembled dict.
 
     Drops configs whose solve-failure fraction exceeds config.MAX_FAIL_FRAC
     (near the MPC's stabilizable boundary) and logs them.
+
+    norm_out_path defaults to C.NORM_STATS -- override it alongside
+    out_path (e.g. to a tempdir) for smoke/e2e testing so a test run can't
+    silently overwrite the real project's norm stats.
     """
     n_configs = n_configs or C.N_CONFIGS
     n_states = n_states or C.N_STATES_PER_CONFIG
     seed = C.SEED if seed is None else seed
     out_path = out_path or C.SEED_DATASET
+    norm_out_path = norm_out_path or C.NORM_STATS
 
     rng = np.random.default_rng(seed)
     configs = pu.sample_configs(n_configs, rng=rng)
@@ -160,7 +166,7 @@ def generate_dataset(n_configs=None, n_states=None, seed=None,
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     np.savez(out_path, **data)
-    compute_norm_stats(data, save=True)
+    compute_norm_stats(data, save=True, out_path=norm_out_path)
 
     if verbose:
         dt = time.time() - t0

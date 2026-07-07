@@ -99,7 +99,8 @@ def train(dataset_path=None, epochs=None, out_ckpt=None, init_ckpt=None,
                 print(f"[epoch {epoch:3d}] val_data_mse={val:.4f} "
                       f"best={best_val:.4f}@{best_epoch}  "
                       f"w=({w['w_data']:.2f},{w['w_phys']:.2f},{w['w_bar']:.2f},{w['w_el']:.2f})")
-            if epoch - best_epoch > C.EARLY_STOP_PATIENCE:
+            min_epoch = int(C.EARLY_STOP_MIN_EPOCH_FRAC * epochs)
+            if epoch >= min_epoch and epoch - best_epoch > C.EARLY_STOP_PATIENCE:
                 if verbose:
                     print(f"[early stop] no val improvement for "
                           f"{C.EARLY_STOP_PATIENCE} epochs")

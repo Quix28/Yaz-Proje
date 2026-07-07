@@ -94,6 +94,12 @@ WEIGHT_DECAY = 1e-5
 GRAD_CLIP = 5.0
 VAL_CONFIG_FRAC = 0.15     # fraction of *configs* held out for validation
 EARLY_STOP_PATIENCE = 40   # epochs w/o val improvement
+EARLY_STOP_MIN_EPOCH_FRAC = 0.70  # matches RAMP_FRAC: L_data plateaus fast
+                                  # during warmup (it's the only active term)
+                                  # -- without this floor, patience expires
+                                  # before L_physics/L_barrier/L_EL ever get
+                                  # nonzero weight, silently degrading the
+                                  # run to a plain imitation NN
 
 # ------------------------------------------------------ physics rollout ---
 PHYS_N = 10                # rollout horizon for L_physics (5-20)
