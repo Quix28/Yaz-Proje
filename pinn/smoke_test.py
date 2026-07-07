@@ -146,9 +146,13 @@ def run_e2e():
             print(f"  train: val_data_mse {hist[0]:.3f} -> {min(hist):.3f} "
                   f"over {len(hist)} epochs")
 
-            # one DAgger round
+            # one DAgger round -- dataset_path/out_dir/ckpt_dir all pinned to
+            # the tempdir so this test can never leak round-N artifacts into
+            # the real pinn/data or pinn/checkpoints directories
             C.DAGGER_CONFIGS, C.DAGGER_ICS, C.DAGGER_STEPS = 3, 3, 40
-            ds1, ckpt1, n_added = D.run_round(1, ckpt, verbose=False)
+            ds1, ckpt1, n_added = D.run_round(1, ckpt, verbose=False,
+                                              dataset_path=ds_path,
+                                              out_dir=tmp, ckpt_dir=tmp)
             print(f"  dagger round 1: added {n_added} relabeled points")
             assert n_added > 0, "DAgger added no points"
             assert os.path.exists(ckpt1)

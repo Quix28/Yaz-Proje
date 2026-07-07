@@ -56,7 +56,12 @@ def solve_swingup_trajectory(params, x0, xf, Np=150, dt=0.05, s_max=0.18,
         xdot_k = _dynamics(X[:, k], U[0, k], params)
         opti.subject_to(opti.bounded(-sddot_max, xdot_k[3], sddot_max))
 
-        u_avail_k = MOTOR_FORCE_MAX * (1 - (X[3, k] / MOTOR_FREE_SPEED) ** 2)
+        # fmax floor: without it, an intermediate IPOPT iterate with
+        # |sdot| > MOTOR_FREE_SPEED (transiently violating the separate
+        # velocity bound below, before convergence) drives u_avail_k
+        # negative, making opti.bounded(-u_avail_k, U, u_avail_k) an
+        # empty interval -- undefined for the interior-point barrier.
+        u_avail_k = MOTOR_FORCE_MAX * ca.fmax(0.0, 1 - (X[3, k] / MOTOR_FREE_SPEED) ** 2)
         opti.subject_to(opti.bounded(-u_avail_k, U[0, k], u_avail_k))
     opti.minimize(J)
 

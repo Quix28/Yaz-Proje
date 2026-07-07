@@ -24,25 +24,40 @@ from mpc import MPCController, MOTOR_FORCE_MAX, MOTOR_FREE_SPEED
 
 
 def _mass_matrix(th1, th2, p):
+    """Mirrors mpc.py's _dynamics mass matrix exactly, encoder masses
+    included -- must stay bit-consistent with the plant or the swing-up
+    energy law targets the wrong E_target."""
     m1, m2, l1, l2 = p['m1'], p['m2'], p['l1'], p['l2']
     I1, I2, M = p['I1'], p['I2'], p['M']
     lc1, lc2 = p.get('lc1', l1 / 2), p.get('lc2', l2 / 2)
+    m_enc1 = p.get('m_enc1', 0.18)  # theta1 encoder, on the cart
+    m_enc2 = p.get('m_enc2', 0.18)  # theta2 encoder, at the joint (rotates with th1 only)
     c1, c2 = np.cos(th1), np.cos(th2)
     c12 = np.cos(th1 - th2)
-    M11 = M + m1 + m2
-    M12 = (m1 * lc1 + m2 * l1) * c1
+
+    M_eff = M + m_enc1
+    m2_l1 = m2 + m_enc2
+
+    M11 = M_eff + m1 + m2_l1
+    M12 = (m1 * lc1 + m2_l1 * l1) * c1
     M13 = m2 * lc2 * c2
-    M22 = m1 * lc1 ** 2 + m2 * l1 ** 2 + I1
+    M22 = m1 * lc1 ** 2 + m2_l1 * l1 ** 2 + I1
     M23 = m2 * l1 * lc2 * c12
     M33 = m2 * lc2 ** 2 + I2
     return np.array([[M11, M12, M13], [M12, M22, M23], [M13, M23, M33]])
 
 
 def _potential(th1, th2, p):
+    """encoder1 rides on the cart (height constant -> zero PE contribution,
+    omitted); encoder2 rotates with th1 at radius l1, so it contributes a
+    l1*cos(th1) term same as m2's own first-link attachment."""
     m1, m2, l1 = p['m1'], p['m2'], p['l1']
     lc1, lc2 = p.get('lc1', p['l1'] / 2), p.get('lc2', p['l2'] / 2)
+    m_enc2 = p.get('m_enc2', 0.18)
     g = p.get('g', 9.81)
-    return m1 * g * lc1 * np.cos(th1) + m2 * g * (l1 * np.cos(th1) + lc2 * np.cos(th2))
+    return (m1 * g * lc1 * np.cos(th1)
+            + m_enc2 * g * l1 * np.cos(th1)
+            + m2 * g * (l1 * np.cos(th1) + lc2 * np.cos(th2)))
 
 
 def energy(state, p):

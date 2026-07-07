@@ -2,6 +2,13 @@
 Symbolic derivation of cart + double inverted pendulum dynamics
 via Euler-Lagrange. Run to print the equations of motion, cross-check
 against the closed-form implementation in dynamics.py.
+
+Deliberately a skeleton, not the full model: encoder masses (m_enc1,
+m_enc2) and Coulomb friction (dynamics.py's tanh(qdot/eps) term) are
+omitted here since they'd clutter the symbolic derivation without
+changing the structure being checked (Lagrangian -> EOM via
+Euler-Lagrange). Cross-check the *shape* of the equations here; treat
+dynamics.py as the source of truth for the full model.
 """
 import sympy as sp
 

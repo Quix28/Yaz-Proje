@@ -48,3 +48,35 @@ To develop a physics-informed neural network (PINN) that learns to approximate a
 * Export weights (TFLite Micro or raw C++ header); test post-quantization behavior if quantizing[cite: 1].
 * Add an independent hardware watchdog that cuts power on constraint violation, separate from the network[cite: 1].
 * Run closed-loop on the real rig, compare against sim results[cite: 1].
+
+## Implementation Status
+
+Locked decisions made with the user before implementation: network output is **voltage** (tanh × V_MAX, V_MAX = 24V — supersedes the ±12V note above, since the user specified a 24V bus with a 57HS82-4008A08-D21 NEMA23 stepper motor), core training scope first (Steps 2–5), evaluation/ablation/LQR baseline (Step 6) deferred to a second pass, and $L_{EL}$ included as core rather than optional. All new code lives in the `pinn/` package; existing physics files (`dynamics.py`, `sim_loop.py`, `trajectory.py`) are untouched except the Step 0 motor-spec fix in `mpc.py`.
+
+### Step 1 — done (pre-existing)
+Differentiable dynamics already implemented in `dynamics.py` before this work began.
+
+### Step 2 — done
+- `mpc.py`: motor spec restored to NEMA23 (57HS82, ~165N) after a bad-merge regression to NEMA17; IPOPT tuned with `mu_strategy='adaptive'` + `nlp_scaling_method='gradient-based'` to converge on the resulting badly-scaled, over-actuated NLP (30/30 solves, ~0.3s warm-started)
+- `pinn/param_utils.py`: Latin-Hypercube sampling of $(m_1,m_2,l_1,l_2)$, derives $I_i, lc_i$
+- `pinn/dataset.py`: one warm-started `MPCController` per config (avoids ~19s IPOPT cold-start per sample), parallelized across configs via `multiprocessing`; initial states drawn from a **mixture** of three regimes — center (small perturbation), off-center (cart position widened toward the rail), and push (velocity kick) — so the teacher dataset covers off-center stabilization and disturbance rejection, not just regulation from dead-center; `config_id` retained per sample so train/val splits can hold out entire configs
+- `pinn/actuator.py`: voltage↔force map (torque-speed derate), since the network outputs voltage but the plant/MPC labels are in force
+
+### Step 3 — done
+`pinn/model.py`: 10→128→128→64→1, tanh, output `tanh × V_MAX` (voltage, hard-bounded by construction). Normalization stats stored as model buffers (self-contained checkpoint).
+
+### Step 4 — done, all four terms
+`pinn/losses.py`: $L_{data}$ (voltage MSE), $L_{physics}$ (5–10 step differentiable rollout, per-batch-element under its own pendulum config), $L_{barrier}$ (soft position/velocity/rate penalties), $L_{EL}$ (Lyapunov-style collocation residual on random state/param points never solved by MPC — included as core). Annealed weighting: data-only warmup (0–20%) → ramp (20–70%) → physics/barrier-heavy (70–100%).
+
+### Step 5 — done
+`pinn/train.py`: Adam + cosine decay, grouped validation split (entire configs held out, not random rows), early stopping. `pinn/dagger.py`: closed-loop PINN rollout → MPC relabels visited states → retrain warm-started, 2–3 rounds; reuses the same off-center/push mixture sampler for initial conditions.
+
+Verified via `pinn/smoke_test.py`: per-module checks pass, and a tiny end-to-end run (98 samples, 5 configs → train → 1 DAgger round) shows val MSE dropping 1.407→0.646 and DAgger adding relabeled points, confirming the pipeline assembles and runs correctly.
+
+### Step 6 — deferred (explicit second pass)
+`evaluate.py` (settling time, peak deviation, control effort, success rate; ablation; interpolation/extrapolation generalization split) and `baselines.py` (LQR + plain imitation NN) not yet started.
+
+### Step 7 — not started
+Pending real hardware access.
+
+**Ready for**: full-scale seed dataset generation (~200 configs × 80 states, 30–60 min), full training (300 epochs, ~1–2hrs CPU), 3 DAgger rounds.

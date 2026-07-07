@@ -42,11 +42,18 @@ def _rollout_pinn(model, params, mlparams, x0, steps, dt):
     return visited
 
 
-def run_round(round_idx, init_ckpt, seed=None, verbose=True):
+def run_round(round_idx, init_ckpt, seed=None, verbose=True,
+              dataset_path=None, out_dir=None, ckpt_dir=None):
     """
     One DAgger round. Returns (dataset_path, ckpt_path).
+
+    out_dir/ckpt_dir default to C.DATA_DIR/C.CKPT_DIR (the real project
+    dirs) -- override them (e.g. to a tempdir) for smoke/e2e testing so
+    a test run can't leak round-N artifacts into the real project state.
     """
     seed = (C.SEED + round_idx) if seed is None else seed
+    out_dir = out_dir or C.DATA_DIR
+    ckpt_dir = ckpt_dir or C.CKPT_DIR
     rng = np.random.default_rng(seed)
     from mpc import MPCController
 
@@ -56,7 +63,7 @@ def run_round(round_idx, init_ckpt, seed=None, verbose=True):
     # roll out under a mix of configs (reuse the dataset sampler)
     configs = pu.sample_configs(C.DAGGER_CONFIGS, rng=rng)
     new_states, new_ml, new_u, new_cid = [], [], [], []
-    base = ds.load_dataset()
+    base = ds.load_dataset(dataset_path)
     next_cid = int(base["config_id"].max()) + 1
     n_added = 0
 
@@ -65,8 +72,8 @@ def run_round(round_idx, init_ckpt, seed=None, verbose=True):
         ctrl = MPCController(params, Np=C.MPC_NP, dt=C.DT, s_max=C.S_MAX)
 
         collected = []
-        for _ in range(C.DAGGER_ICS):
-            x0 = rng.uniform(-C.STATE_PERT, C.STATE_PERT, size=6)
+        ics = ds._sample_states(C.DAGGER_ICS, rng)  # same off-center/push mix as the seed set
+        for x0 in ics:
             visited = _rollout_pinn(model, params, ml, x0, C.DAGGER_STEPS, C.DT)
             collected.extend(visited[::C.DAGGER_SUBSAMPLE])   # subsample
 
@@ -97,7 +104,7 @@ def run_round(round_idx, init_ckpt, seed=None, verbose=True):
     else:
         data = base
 
-    ds_path = os.path.join(C.DATA_DIR, f"dataset_round{round_idx}.npz")
+    ds_path = os.path.join(out_dir, f"dataset_round{round_idx}.npz")
     np.savez(ds_path, **data)
     # keep seed norm stats (comparable splits across rounds) -- do NOT recompute
 
@@ -105,7 +112,7 @@ def run_round(round_idx, init_ckpt, seed=None, verbose=True):
         print(f"[dagger round {round_idx}] added {n_added} relabeled points "
               f"-> {ds_path}")
 
-    ckpt_path = os.path.join(C.CKPT_DIR, f"round{round_idx}_best.pt")
+    ckpt_path = os.path.join(ckpt_dir, f"round{round_idx}_best.pt")
     T.train(dataset_path=ds_path, out_ckpt=ckpt_path, init_ckpt=init_ckpt,
             seed=seed, verbose=verbose)
     return ds_path, ckpt_path, n_added
@@ -115,6 +122,11 @@ def run(rounds=None, seed_ckpt=None, verbose=True):
     """Run all DAgger rounds starting from the seed-trained checkpoint."""
     rounds = C.DAGGER_ROUNDS if rounds is None else rounds
     ckpt = seed_ckpt or os.path.join(C.CKPT_DIR, "round0_best.pt")
+    if not os.path.exists(ckpt):
+        raise FileNotFoundError(
+            f"seed checkpoint not found: {ckpt} -- run `python -m pinn.train` "
+            f"(Step 5a) first to produce it before starting DAgger."
+        )
     for k in range(1, rounds + 1):
         _, ckpt, _ = run_round(k, ckpt, verbose=verbose)
     return ckpt
