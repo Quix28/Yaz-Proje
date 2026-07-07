@@ -22,8 +22,36 @@ from pinn import param_utils as pu
 
 
 def _sample_states(n, rng):
+    """
+    Mixture of three initial-state regimes (C.MIX_WEIGHTS) so the seed
+    dataset covers more than pure small-angle regulation from center:
+      - center:    the small-perturbation box (STATE_PERT)
+      - offcenter: same box, cart position widened to +-S_OFFCENTER_MAX --
+                   teaches off-center stabilization
+      - push:      position/angle as in STATE_PERT, velocities widened to
+                   PUSH_VEL_PERT -- teaches disturbance rejection from a
+                   sudden but physically plausible kick
+    Wraps MPCController.solve unchanged; only this sampling loop differs.
+    """
+    w = C.MIX_WEIGHTS
+    n_center = int(round(n * w["center"]))
+    n_off = int(round(n * w["offcenter"]))
+    n_push = n - n_center - n_off  # remainder -- avoids rounding gaps
+
     low, high = -C.STATE_PERT, C.STATE_PERT
-    return rng.uniform(low, high, size=(n, 6))
+    center = rng.uniform(low, high, size=(n_center, 6))
+
+    off_low, off_high = low.copy(), high.copy()
+    off_low[0], off_high[0] = -C.S_OFFCENTER_MAX, C.S_OFFCENTER_MAX
+    offcenter = rng.uniform(off_low, off_high, size=(n_off, 6))
+
+    push_low, push_high = low.copy(), high.copy()
+    push_low[3:], push_high[3:] = -C.PUSH_VEL_PERT, C.PUSH_VEL_PERT
+    push = rng.uniform(push_low, push_high, size=(n_push, 6))
+
+    states = np.concatenate([center, offcenter, push], axis=0)
+    rng.shuffle(states)
+    return states
 
 
 def generate_for_config(args):

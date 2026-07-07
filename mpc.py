@@ -17,7 +17,7 @@ NU = 1
 # NEMA23 stepper (57HS82-4008A08-D21), GT2 belt direct-drive (20-tooth
 # pulley, no gearbox). Adjust constants if yours differs (different pulley,
 # geared motor, lead screw, etc).
-NEMA23_HOLDING_TORQUE = 2.1    # N*m, 57HS82-4008A08-D21 (~21 kg*cm, 4.0A) --
+NEMA23_HOLDING_TORQUE = 2.2    # N*m, 57HS82-4008A08-D21 (~22 kg*cm, 4.0A) --
                                # catalog spec, confirm against your unit's
                                # datasheet; 57HS82 variants run ~2.0-2.2 N*m
 GT2_PULLEY_RADIUS = 0.006366   # m, 20-tooth GT2 pulley pitch radius
@@ -25,7 +25,7 @@ DYNAMIC_DERATE = 0.5           # holding-torque -> usable dynamic torque;
                                # steppers lose torque with speed (back-EMF)
                                # and skip steps if driven at rated holding
                                # torque continuously -- 50% margin against that
-MOTOR_FORCE_MAX = NEMA23_HOLDING_TORQUE * DYNAMIC_DERATE / GT2_PULLEY_RADIUS  # ~165 N
+MOTOR_FORCE_MAX = NEMA23_HOLDING_TORQUE * DYNAMIC_DERATE / GT2_PULLEY_RADIUS  # ~173 N
 
 # Steppers have essentially zero holding torque left well before their
 # absolute max RPM -- 600 RPM is a rough ceiling for *reliable, in-torque*
@@ -168,8 +168,13 @@ class MPCController:
             opti.subject_to(opti.bounded(-sddot_max, xdot_k[3], sddot_max))
 
             # torque-speed derate: force available shrinks to 0 as cart
-            # speed approaches sdot_max (crude linear stepper torque curve)
-            u_avail_k = u_max * (1 - (X[3, k] / sdot_max) ** 2)
+            # speed approaches sdot_max (crude linear stepper torque curve).
+            # fmax floor: an intermediate IPOPT iterate with |sdot| >
+            # sdot_max (transiently violating the separate velocity bound
+            # below, before convergence) would otherwise drive u_avail_k
+            # negative, making opti.bounded(-u_avail_k, U, u_avail_k) an
+            # empty interval -- undefined for the interior-point barrier.
+            u_avail_k = u_max * ca.fmax(0.0, 1 - (X[3, k] / sdot_max) ** 2)
             opti.subject_to(opti.bounded(-u_avail_k, U[0, k], u_avail_k))
 
         dxN = X[:, Np] - xref_param
@@ -184,7 +189,7 @@ class MPCController:
             opti.subject_to(opti.bounded(-thdot_max, X[5, :], thdot_max))
 
         # mu_strategy=adaptive + gradient scaling: the NEMA23 force ceiling
-        # (~165 N) is large relative to this small cart's tight velocity/
+        # (~173 N) is large relative to this small cart's tight velocity/
         # position bounds, so the regulation NLP is over-actuated and badly
         # scaled -- the default monotone barrier stalls (Maximum_Iterations
         # _Exceeded even at 5000 iters). Adaptive barrier + gradient scaling

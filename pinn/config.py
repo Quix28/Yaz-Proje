@@ -66,6 +66,20 @@ MAX_LABEL_FACTOR = 1.5     # reject |u| > this * MOTOR_FORCE_MAX
 MAX_FAIL_FRAC = 0.20       # drop a config if it fails more than this fraction
 SEED = 0
 
+# Seed-dataset sampling is a *mixture* of STATE_PERT plus two wider regimes,
+# layered on top without touching MPCController: off-center stabilization
+# (cart starts away from s=0) and disturbance rejection (sudden velocity
+# kick). Both stay well inside COLLOC_STATE_PERT, which the MPC is known
+# not to solve reliably -- these are meant to still converge under IPOPT.
+S_OFFCENTER_MAX = 0.9 * S_MAX      # margin below the rail so the solver
+                                   # isn't starting flush against a bound
+PUSH_VEL_PERT = np.array([0.30, 0.70, 0.70])  # sdot, th1dot, th2dot kick --
+                                               # sdot stays below
+                                               # MOTOR_FREE_SPEED (~0.4),
+                                               # angular rates well short of
+                                               # swing-up territory
+MIX_WEIGHTS = dict(center=0.5, offcenter=0.25, push=0.25)
+
 # ----------------------------------------------------------- network ------
 HIDDEN = (128, 128, 64)    # 3 hidden layers
 ACTIVATION = "tanh"        # smooth for the physics-rollout backprop
