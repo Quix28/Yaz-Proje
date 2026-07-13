@@ -144,13 +144,14 @@ def run_e2e():
             _, hist = T.train(dataset_path=ds_path, epochs=25, out_ckpt=ckpt,
                               verbose=False)
             assert os.path.exists(ckpt)
-            # check best (checkpointed) epoch, not the last one -- the
-            # annealed loss is expected to be non-monotonic in pure-
-            # imitation val MSE as physics/barrier weight ramps in past
-            # warmup; train.py already tracks+saves the best epoch
-            # regardless of where training ends up
+            # hist is val_combined at the *fixed* post-ramp weights (not just
+            # data MSE, and not the live annealed weights) -- check best
+            # (checkpointed) epoch, not the last one, since that combined
+            # objective can still be non-monotonic during training; train.py
+            # already tracks+saves the best epoch regardless of where
+            # training ends up
             assert min(hist) <= hist[0] + 1e-6, "best val loss never improved on the initial epoch"
-            print(f"  train: val_data_mse {hist[0]:.3f} -> {min(hist):.3f} "
+            print(f"  train: val_combined {hist[0]:.3f} -> {min(hist):.3f} "
                   f"over {len(hist)} epochs")
 
             # one DAgger round -- dataset_path/out_dir/ckpt_dir all pinned to
