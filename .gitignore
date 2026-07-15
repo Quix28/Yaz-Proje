@@ -7,3 +7,8 @@ __pycache__/
 agent/
 .claude/
 skills-lock.json
+
+# training run artifacts — regenerated per-run, not deliverables
+*.resume
+train.log
+wandb/

@@ -107,6 +107,32 @@ def check_baseline_untrained_diverges_less():
     _ok("rollout: finite under a random policy")
 
 
+def check_evaluate():
+    from pinn import evaluate as E
+    from pinn import baselines as B
+
+    ml = (C.NOMINAL["m1"], C.NOMINAL["m2"], C.NOMINAL["l1"], C.NOMINAL["l2"])
+    K = B.lqr_gain(ml)
+    assert K.shape == (1, 6) and np.isfinite(K).all()
+    policy = B.lqr_policy(K)
+
+    x0 = np.array([0.03, 0.05, -0.04, 0.0, 0.0, 0.0])
+    traj = E.rollout(policy, ml, x0, steps=60)
+    assert traj["states"].shape[1] == 6 and not traj["diverged"]
+    m = E.rollout_metrics(traj)
+    assert m["success"] and m["settling_time"] == m["settling_time"]  # not NaN
+    assert m["peak_s"] >= abs(x0[0]) - 1e-9
+
+    rng = np.random.default_rng(0)
+    interp = E.sample_interp_configs(3, rng)
+    extrap = E.sample_extrap_configs(3, rng)
+    assert interp.shape == (3, 4) and extrap.shape == (3, 4)
+    low, high = np.array(C.PARAM_LOW), np.array(C.PARAM_HIGH)
+    assert all(np.any(c < low) or np.any(c > high) for c in extrap), \
+        "extrapolation configs must fall outside the training box"
+    _ok("evaluate: rollout/metrics/lqr/interp-extrap split")
+
+
 def run_unit():
     print("[smoke] per-module checks")
     check_param_utils()
@@ -114,6 +140,7 @@ def run_unit():
     check_model()
     check_losses()
     check_baseline_untrained_diverges_less()
+    check_evaluate()
     print("[smoke] all per-module checks passed\n")
 
 

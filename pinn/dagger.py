@@ -43,7 +43,7 @@ def _rollout_pinn(model, params, mlparams, x0, steps, dt):
 
 
 def run_round(round_idx, init_ckpt, seed=None, verbose=True,
-              dataset_path=None, out_dir=None, ckpt_dir=None):
+              dataset_path=None, out_dir=None, ckpt_dir=None, use_wandb=False):
     """
     One DAgger round. Returns (dataset_path, ckpt_path).
 
@@ -114,11 +114,12 @@ def run_round(round_idx, init_ckpt, seed=None, verbose=True,
 
     ckpt_path = os.path.join(ckpt_dir, f"round{round_idx}_best.pt")
     T.train(dataset_path=ds_path, out_ckpt=ckpt_path, init_ckpt=init_ckpt,
-            seed=seed, verbose=verbose)
+            seed=seed, verbose=verbose, use_wandb=use_wandb,
+            wandb_run_name=f"dagger-round{round_idx}", wandb_group="dagger")
     return ds_path, ckpt_path, n_added
 
 
-def run(rounds=None, seed_ckpt=None, verbose=True):
+def run(rounds=None, seed_ckpt=None, verbose=True, use_wandb=False):
     """Run all DAgger rounds starting from the seed-trained checkpoint."""
     rounds = C.DAGGER_ROUNDS if rounds is None else rounds
     ckpt = seed_ckpt or os.path.join(C.CKPT_DIR, "round0_best.pt")
@@ -128,7 +129,7 @@ def run(rounds=None, seed_ckpt=None, verbose=True):
             f"(Step 5a) first to produce it before starting DAgger."
         )
     for k in range(1, rounds + 1):
-        _, ckpt, _ = run_round(k, ckpt, verbose=verbose)
+        _, ckpt, _ = run_round(k, ckpt, verbose=verbose, use_wandb=use_wandb)
     return ckpt
 
 
