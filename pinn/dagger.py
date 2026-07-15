@@ -120,7 +120,13 @@ def run_round(round_idx, init_ckpt, seed=None, verbose=True,
 
 
 def run(rounds=None, seed_ckpt=None, verbose=True, use_wandb=False):
-    """Run all DAgger rounds starting from the seed-trained checkpoint."""
+    """Run all DAgger rounds starting from the seed-trained checkpoint.
+
+    Each round's assembled dataset (seed + all relabeled points so far) is
+    threaded into the next round's `dataset_path` -- otherwise every round
+    would silently reload the raw seed dataset and DAgger would never
+    actually accumulate visited-state data across rounds.
+    """
     rounds = C.DAGGER_ROUNDS if rounds is None else rounds
     ckpt = seed_ckpt or os.path.join(C.CKPT_DIR, "round0_best.pt")
     if not os.path.exists(ckpt):
@@ -128,8 +134,10 @@ def run(rounds=None, seed_ckpt=None, verbose=True, use_wandb=False):
             f"seed checkpoint not found: {ckpt} -- run `python -m pinn.train` "
             f"(Step 5a) first to produce it before starting DAgger."
         )
+    ds_path = None
     for k in range(1, rounds + 1):
-        _, ckpt, _ = run_round(k, ckpt, verbose=verbose, use_wandb=use_wandb)
+        ds_path, ckpt, _ = run_round(k, ckpt, dataset_path=ds_path, verbose=verbose,
+                                     use_wandb=use_wandb)
     return ckpt
 
 

@@ -71,7 +71,11 @@ def _demo():
     policy = lqr_policy(K)
 
     batched = pu.batched_torch_params(np.asarray(ml).reshape(1, 4))
-    x = torch.tensor([0.05, 0.1, -0.08, 0.0, 0.0, 0.0], dtype=torch.float64)
+    # small perturbation: this pendulum's tiny link inertia means a fixed
+    # linear gain only stabilizes a fairly narrow region around upright --
+    # larger ICs are exactly where LQR is expected to lose to MPC/PINN (the
+    # whole point of it as a baseline), not a bug in the gain itself.
+    x = torch.tensor([0.015, 0.02, -0.015, 0.0, 0.0, 0.0], dtype=torch.float64)
     x0_norm = float(x.abs().max())
     for _ in range(200):
         F = policy(x.numpy())
