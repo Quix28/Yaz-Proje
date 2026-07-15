@@ -6,8 +6,12 @@ Step 4: loss terms + annealing schedule.
             network's own commands; penalize deviation from upright over the
             whole rollout, per-sample under each sample's own pendulum.
   L_barrier soft one-sided penalties for position/velocity/force-rate limits.
-  L_EL      Euler-Lagrange / Lyapunov residual at random collocation points
-            (state,param combos the MPC never solved) -- the "real PINN" term.
+  L_EL      Lyapunov-style stability residual at random collocation points
+            (state,param combos the MPC never solved) -- the "real PINN"
+            term. Named L_EL/w_el for continuity with the project plan's
+            "Euler-Lagrange residual" collocation term, but it is NOT a
+            literal residual of the equations of motion -- see loss_el()
+            below for what it actually penalizes.
 
 Precision: the network path is float32; state + force are cast to float64
 before entering forward_dynamics (mass-matrix inverse is float64-stable),
@@ -91,11 +95,14 @@ def loss_physics_barrier(model, states, mlparams, dt=None, n_steps=None):
 
 def loss_el(model, rng, n=None):
     """
-    Euler-Lagrange / Lyapunov residual at random collocation points from a
-    WIDER (state,param) box than the dataset -- regions the MPC never labels.
-    Penalize commands that physically accelerate a link *away* from upright:
-    with theta measured from vertical-up, a restoring command makes
-    theta*theta_ddot < 0, so relu(theta*theta_ddot) is the violation.
+    Lyapunov-style stability residual (kept the L_EL/w_el name from the
+    project plan's "Euler-Lagrange residual" for continuity -- this is NOT
+    a literal residual of the Euler-Lagrange equations of motion) at random
+    collocation points from a WIDER (state,param) box than the dataset --
+    regions the MPC never labels. Penalizes commands that physically
+    accelerate a link *away* from upright: with theta measured from
+    vertical-up, a restoring command makes theta*theta_ddot < 0, so
+    relu(theta*theta_ddot) is the violation.
     Reuses only forward_dynamics (no MPC, cheap).
     """
     n = C.N_COLLOC if n is None else n
