@@ -1,0 +1,87 @@
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/scipy/stats/_qmc.py:763: UserWarning: The balance properties of Sobol' points require n to be a power of 2.
+  sample = self._random(n, workers=workers)
+[dagger round 1] config 1/40 done (38 candidates, 23 kept so far)
+[dagger round 1] config 2/40 done (62 candidates, 54 kept so far)
+[dagger round 1] config 3/40 done (33 candidates, 78 kept so far)
+[dagger round 1] config 4/40 done (36 candidates, 100 kept so far)
+[dagger round 1] config 5/40 done (50 candidates, 142 kept so far)
+[dagger round 1] config 6/40 done (36 candidates, 172 kept so far)
+[dagger round 1] config 7/40 done (32 candidates, 195 kept so far)
+[dagger round 1] config 8/40 done (37 candidates, 216 kept so far)
+[dagger round 1] config 9/40 done (36 candidates, 243 kept so far)
+[dagger round 1] config 10/40 done (33 candidates, 266 kept so far)
+[dagger round 1] config 11/40 done (23 candidates, 278 kept so far)
+[dagger round 1] config 12/40 done (32 candidates, 296 kept so far)
+[dagger round 1] config 13/40 done (27 candidates, 311 kept so far)
+[dagger round 1] config 14/40 done (40 candidates, 338 kept so far)
+[dagger round 1] config 15/40 done (32 candidates, 359 kept so far)
+[dagger round 1] config 16/40 done (47 candidates, 396 kept so far)
+[dagger round 1] config 17/40 done (62 candidates, 436 kept so far)
+[dagger round 1] config 18/40 done (44 candidates, 466 kept so far)
+[dagger round 1] config 19/40 done (28 candidates, 484 kept so far)
+[dagger round 1] config 20/40 done (40 candidates, 511 kept so far)
+[dagger round 1] config 21/40 done (34 candidates, 537 kept so far)
+[dagger round 1] config 22/40 done (60 candidates, 588 kept so far)
+[dagger round 1] config 23/40 done (40 candidates, 618 kept so far)
+[dagger round 1] config 24/40 done (37 candidates, 639 kept so far)
+[dagger round 1] config 25/40 done (29 candidates, 662 kept so far)
+[dagger round 1] config 26/40 done (43 candidates, 688 kept so far)
+[dagger round 1] config 27/40 done (35 candidates, 715 kept so far)
+[dagger round 1] config 28/40 done (41 candidates, 740 kept so far)
+[dagger round 1] config 29/40 done (39 candidates, 766 kept so far)
+[dagger round 1] config 30/40 done (40 candidates, 792 kept so far)
+[dagger round 1] config 31/40 done (45 candidates, 826 kept so far)
+[dagger round 1] config 32/40 done (33 candidates, 844 kept so far)
+[dagger round 1] config 33/40 done (31 candidates, 866 kept so far)
+[dagger round 1] config 34/40 done (30 candidates, 886 kept so far)
+[dagger round 1] config 35/40 done (32 candidates, 911 kept so far)
+[dagger round 1] config 36/40 done (43 candidates, 936 kept so far)
+[dagger round 1] config 37/40 done (28 candidates, 953 kept so far)
+[dagger round 1] config 38/40 done (36 candidates, 977 kept so far)
+[dagger round 1] config 39/40 done (36 candidates, 1004 kept so far)
+[dagger round 1] config 40/40 done (30 candidates, 1021 kept so far)
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from /Users/quix28/.netrc.
+wandb: Currently logged in as: quix28 (quix28-robert-college) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.28.0
+wandb: Run data is saved locally in /Users/quix28/Desktop/Yaz Proje/wandb/run-20260723_064911-1tkrghsw
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run dagger-round1
+wandb: ⭐️ View project at https://wandb.ai/quix28-robert-college/pinn-double-pendulum
+wandb: 🚀 View run at https://wandb.ai/quix28-robert-college/pinn-double-pendulum/runs/1tkrghsw
+wandb: updating run metadata
+wandb: uploading output.log; uploading wandb-summary.json; uploading config.yaml
+wandb: uploading output.log
+wandb: uploading history steps 298-299, summary, console lines 15-16
+wandb: 
+wandb: Run history:
+wandb: best_val_combined █▆▆▆▆▆▆▆▆▆▃▃▂▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:             epoch ▁▁▁▂▂▂▂▂▂▃▃▃▃▃▃▄▄▄▄▄▅▅▅▅▅▅▅▆▆▆▇▇▇▇▇▇▇███
+wandb:                lr ████████▇▇▇▇▇▇▇▆▅▅▅▅▄▃▃▃▃▃▃▂▂▂▂▂▂▁▁▁▁▁▁▁
+wandb:         train_bar ▆▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂▂▁▂▂▂▂▂▃▃▃▄▇▆██▇
+wandb:        train_data ▁▁▁▁▁▃█▅▂▂▂▃▃▃▂▂▂▂▂▂▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃
+wandb:          train_el █▁▂▂▁▁▂▂▂▂▄▃▃▃▂▃▃▃▃▄▃▄▂▃▃▃▃▃▃▂▅▃▄▄▄▅▅▄▄▂
+wandb:        train_phys ██▆▅▂▂▆▂▂▂▂▁▁▁▂▁▂▁▁▂▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:      val_combined ▂▂▂▂▂▂▂▂█▇▅▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:      val_data_mse ▁▁▁▁▁▃▃▃▃▂█▂▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▄▃▃▃▃▃▃▃▃▃
+wandb:           w_w_bar ▁▁▁▁▁▁▁▁▁▁▂▂▂▂▂▃▃▃▄▄▅▅▅▆▇▇██████████████
+wandb:                +3 ...
+wandb: 
+wandb: Run summary:
+wandb: best_val_combined 74.81494
+wandb:             epoch 299
+wandb:                lr 0.0001
+wandb:         train_bar 0.18652
+wandb:        train_data 5.88618
+wandb:          train_el 2.8599
+wandb:        train_phys 107.84615
+wandb:      val_combined 75.46368
+wandb:      val_data_mse 2.01553
+wandb:           w_w_bar 0.5
+wandb:                +3 ...
+wandb: 
+wandb: 🚀 View run dagger-round1 at: https://wandb.ai/quix28-robert-college/pinn-double-pendulum/runs/1tkrghsw
+wandb: ⭐️ View project at: https://wandb.ai/quix28-robert-college/pinn-double-pendulum
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20260723_064911-1tkrghsw/logs
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/scipy/stats/_qmc.py:763: UserWarning: The balance properties of Sobol' points require n to be a power of 2.
+  sample = self._random(n, workers=workers)

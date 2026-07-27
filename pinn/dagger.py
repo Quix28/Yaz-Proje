@@ -93,6 +93,10 @@ def run_round(round_idx, init_ckpt, seed=None, verbose=True,
             new_cid.append(next_cid + ci)
             n_added += 1
 
+        if verbose:
+            print(f"[dagger round {round_idx}] config {ci + 1}/{len(configs)} done "
+                  f"({len(collected)} candidates, {n_added} kept so far)", flush=True)
+
     # assemble round dataset = seed + all relabeled DAgger points
     if n_added > 0:
         data = dict(
