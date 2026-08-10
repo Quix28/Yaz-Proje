@@ -17,7 +17,7 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 import numpy as np
-from mpc import MOTOR_FORCE_MAX, MOTOR_FREE_SPEED  # noqa: E402  single source of truth
+from mpc import MOTOR_FORCE_MAX, MOTOR_FREE_SPEED, Q_DIAG  # noqa: E402  single source of truth
 
 # ---------------------------------------------------------------- paths ---
 PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -113,7 +113,9 @@ EARLY_STOP_MIN_EPOCH_FRAC = 0.70  # matches RAMP_FRAC: L_data plateaus fast
 # ------------------------------------------------------ physics rollout ---
 PHYS_N = 10                # rollout horizon for L_physics (5-20)
 # MPC's own Q diagonal -- weight state deviation the way the teacher does.
-STATE_COST_W = np.array([50.0, 200.0, 200.0, 1.0, 5.0, 5.0])
+# Imported, not copied: losses.L_physics and baselines' LQR both read this, and
+# a hand-copied literal here meant editing mpc.py's Q left all three disagreeing.
+STATE_COST_W = Q_DIAG
 DU_MAX = MOTOR_FORCE_MAX * 0.5   # per-step force-rate barrier threshold [N]
 N_COLLOC = 512             # collocation points per L_EL evaluation
 EL_EPS = 1e-3              # small V**2 regularizer weight inside L_EL
@@ -130,10 +132,14 @@ RAMP_FRAC = 0.70           # physics/barrier fully ramped in by this fraction
 
 # --------------------------------------------------------------- DAgger ---
 DAGGER_ROUNDS = 3
-DAGGER_CONFIGS = 40        # configs rolled out per round (mix train + unseen)
-DAGGER_ICS = 10            # initial conditions per config
-DAGGER_STEPS = 120         # closed-loop steps per rollout
-DAGGER_SUBSAMPLE = 5       # keep every Nth visited state (avoid flooding)
+# These are what actually produced the committed dataset_round1.npz (which has
+# exactly 24 DAgger config_ids, 200-223), ~25 min/round. The previous defaults
+# of 40/10/120/5 were ~98 min/round and were never run -- the Jul 28 round
+# monkeypatched these values, so config.py misdescribed the committed artifact.
+DAGGER_CONFIGS = 24        # configs rolled out per round (mix train + unseen)
+DAGGER_ICS = 6             # initial conditions per config
+DAGGER_STEPS = 100         # closed-loop steps per rollout
+DAGGER_SUBSAMPLE = 4       # keep every Nth visited state (avoid flooding)
 
 
 def state_bounds():

@@ -37,7 +37,7 @@ DYNAMIC_DERATE = 0.5           # holding-torque -> usable dynamic torque;
                                # steppers lose torque with speed (back-EMF)
                                # and skip steps if driven at rated holding
                                # torque continuously -- 50% margin against that
-MOTOR_FORCE_MAX = NEMA23_HOLDING_TORQUE * DYNAMIC_DERATE / GT2_PULLEY_RADIUS  # ~173 N
+MOTOR_FORCE_MAX = NEMA23_HOLDING_TORQUE * DYNAMIC_DERATE / GT2_PULLEY_RADIUS  # ~57.6 N at 60 teeth
 
 # Steppers have essentially zero holding torque left well before their
 # absolute max RPM -- 600 RPM is a rough ceiling for *reliable, in-torque*
@@ -46,7 +46,7 @@ MOTOR_FORCE_MAX = NEMA23_HOLDING_TORQUE * DYNAMIC_DERATE / GT2_PULLEY_RADIUS  # 
 # a linear cart-speed ceiling, and derate available force to zero as the
 # cart approaches it (crude linear torque-speed curve).
 MOTOR_MAX_RPM = 600
-MOTOR_FREE_SPEED = MOTOR_MAX_RPM * 2 * np.pi / 60 * GT2_PULLEY_RADIUS  # ~0.4 m/s
+MOTOR_FREE_SPEED = MOTOR_MAX_RPM * 2 * np.pi / 60 * GT2_PULLEY_RADIUS  # ~1.20 m/s at 60 teeth
 
 # smoothing width for the tanh(qdot/eps) approximation to sign(qdot) in
 # the Coulomb friction term -- MUST match dynamics.py so the solver's
@@ -54,6 +54,13 @@ MOTOR_FREE_SPEED = MOTOR_MAX_RPM * 2 * np.pi / 60 * GT2_PULLEY_RADIUS  # ~0.4 m/
 # trajectory dynamically inconsistent with the plant, which then diverges
 # under tracking). See dynamics.py for why 0.05 rather than a sharper value.
 FRICTION_EPS = 0.05
+
+# State-cost diagonal for [s, th1, th2, sdot, th1dot, th2dot]. Exported because
+# pinn/config.py, pinn/losses.py (L_physics weighting) and pinn/baselines.py (the
+# LQR baseline's Q) all need the SAME weights the teacher uses -- config.py used
+# to hand-copy these numbers, so editing them here silently left three consumers
+# on the old values.
+Q_DIAG = np.array([50.0, 200.0, 200.0, 1.0, 5.0, 5.0])
 
 
 def _dynamics(x, u, p):
@@ -159,7 +166,7 @@ class MPCController:
         self.sdot_max = sdot_max
 
         if Q is None:
-            Q = np.diag([50.0, 200.0, 200.0, 1.0, 5.0, 5.0])
+            Q = np.diag(Q_DIAG)
         if Qf is None:
             Qf = 10 * Q
         self.Q, self.Qf, self.R = Q, Qf, R
@@ -200,13 +207,14 @@ class MPCController:
             opti.subject_to(opti.bounded(-thdot_max, X[4, :], thdot_max))
             opti.subject_to(opti.bounded(-thdot_max, X[5, :], thdot_max))
 
-        # mu_strategy=adaptive + gradient scaling: the NEMA23 force ceiling
-        # (~173 N) is large relative to this small cart's tight velocity/
-        # position bounds, so the regulation NLP is over-actuated and badly
-        # scaled -- the default monotone barrier stalls (Maximum_Iterations
-        # _Exceeded even at 5000 iters). Adaptive barrier + gradient scaling
-        # converges in a few hundred. acceptable_* certifies a near-optimal
-        # point if the last digits of convergence get expensive.
+        # mu_strategy=adaptive + gradient scaling: the force ceiling (~57.6 N
+        # at 60 teeth, ~173 N when this tuning was first needed at 20 teeth) is
+        # large relative to this small cart's tight velocity/position bounds, so
+        # the regulation NLP is over-actuated and badly scaled -- the default
+        # monotone barrier stalls (Maximum_Iterations_Exceeded even at 5000
+        # iters). Adaptive barrier + gradient scaling converges in a few
+        # hundred. acceptable_* certifies a near-optimal point if the last
+        # digits of convergence get expensive.
         opti.solver('ipopt', {'print_time': 0},
                     {'print_level': 0, 'sb': 'yes',
                      'mu_strategy': 'adaptive',
