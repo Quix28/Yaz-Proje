@@ -14,13 +14,25 @@ import numpy as np
 NX = 6  # s, th1, th2, sdot, th1dot, th2dot
 NU = 1
 
-# NEMA23 stepper (57HS82-4008A08-D21), GT2 belt direct-drive (20-tooth
-# pulley, no gearbox). Adjust constants if yours differs (different pulley,
-# geared motor, lead screw, etc).
+# NEMA23 stepper (57HS82-4008A08-D21), GT2 belt direct-drive (no gearbox).
+# Adjust constants if yours differs (different pulley, geared motor, lead
+# screw, etc).
 NEMA23_HOLDING_TORQUE = 2.2    # N*m, 57HS82-4008A08-D21 (~22 kg*cm, 4.0A) --
                                # catalog spec, confirm against your unit's
                                # datasheet; 57HS82 variants run ~2.0-2.2 N*m
-GT2_PULLEY_RADIUS = 0.006366   # m, 20-tooth GT2 pulley pitch radius
+
+# Pulley sizing is a SPEED-vs-FORCE trade, and for this plant speed is the
+# binding constraint, not force. With the original 20-tooth pulley the cart
+# tops out at ~0.4 m/s, and closed-loop MPC from near-upright fails to
+# balance at all (0/3 ICs) -- the cart physically cannot get back under a
+# falling pendulum. Sweeping the ceiling: 0.4 -> 0/3, 0.8 -> 1/3,
+# 1.2 m/s -> 3/3 balanced. 60 teeth buys that 1.2 m/s and still leaves
+# ~58 N on a ~1.5 kg cart (~38 m/s^2), far more force than this plant uses.
+# Equivalent alternative: keep 20 teeth and drive at 1800 RPM (needs a
+# better driver than the A4988/DRV8825 class assumed below).
+GT2_PULLEY_TEETH = 60
+GT2_PULLEY_PITCH = 0.002       # m, GT2 belt tooth pitch
+GT2_PULLEY_RADIUS = GT2_PULLEY_TEETH * GT2_PULLEY_PITCH / (2 * np.pi)  # ~19.1 mm
 DYNAMIC_DERATE = 0.5           # holding-torque -> usable dynamic torque;
                                # steppers lose torque with speed (back-EMF)
                                # and skip steps if driven at rated holding
