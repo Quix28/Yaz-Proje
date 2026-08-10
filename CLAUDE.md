@@ -98,18 +98,24 @@ Rig is built; system-ID, encoder filtering, weight export, and the safety watchd
 
 Success below is the corrected metric — see the note on solver slack after the table.
 
-| `Np` | `Qf` | success | diverged | steps survived | peak θ₁ |
+| `Np` | `Qf` | `thdot_max` | success | diverged | steps survived |
 |---|---|---|---|---|---|
-| 20 | 10·Q *(what generated the dataset)* | **0.016** | 0.906 | 36/151 | 1.351 |
-| 20 | P | 0.312 | 0.688 | 55/151 | 0.917 |
-| 30 | P | 0.391 | 0.609 | 68/151 | 0.962 |
-| 40 | 10·Q | 0.422 | 0.516 | 81/151 | 0.742 |
-| 40 | P | 0.562 | 0.438 | 92/151 | 0.744 |
-| 50 | P | **0.609** | 0.391 | 98/151 | 0.527 |
+| 20 | 10·Q *(what generated the dataset)* | none | **0.016** | 0.906 | 36/151 |
+| 20 | P | none | 0.312 | 0.688 | 55/151 |
+| 30 | P | none | 0.391 | 0.609 | 68/151 |
+| 40 | 10·Q | none | 0.422 | 0.516 | 81/151 |
+| 40 | P | 1.0 | 0.312 | 0.688 | 54/151 |
+| 40 | P | 1.5 | 0.484 | 0.516 | 78/151 |
+| 40 | P | none | 0.562 | 0.438 | 92/151 |
+| 50 | P | none | **0.609** | 0.391 | 98/151 |
 
 8 configs × 8 centre ICs × 150 steps, held-out configs (`EVAL_SEED_OFFSET`), `pinn/results/eval_*.json`.
 
-Two conclusions:
+**1.6% → 60.9%, a 38× improvement, with divergence falling monotonically 0.906 → 0.391.**
+
+Three conclusions:
+
+0. **Do not pass `thdot_max`.** It hurts monotonically (0.312 at 1.0, 0.484 at 1.5, 0.562 unconstrained). It keeps the cart central (peak `s` 0.149 → 0.066) but forbids the fast link-recovery manoeuvres the teacher needs. `mpc.py` wires the constraint; leave it unused.
 
 1. **`Qf = P` (the LQR cost-to-go, `baselines.lqr_cost_to_go`) earns its place independently of horizon** — at a fixed `Np=40` it lifts success 0.422 → 0.562. `Qf = 10*Q` tells the optimizer nothing about what happens after the horizon, so it parks the cart; `P` approximates the true value function and the finite horizon starts behaving like an infinite one.
 2. **Horizon returns flatten after `Np=40`** (0.562 → 0.609 for 50), while dataset-generation cost grows superlinearly. `Np=50` clears 0.6; `Np=40` at 0.562 is a defensible cheaper choice, since 0.6 was a chosen gate and not a physical threshold.
