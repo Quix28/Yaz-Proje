@@ -25,6 +25,7 @@ DATA_DIR = os.path.join(PACKAGE_DIR, "data")
 CKPT_DIR = os.path.join(PACKAGE_DIR, "checkpoints")
 SEED_DATASET = os.path.join(DATA_DIR, "seed_dataset.npz")
 NORM_STATS = os.path.join(DATA_DIR, "norm_stats.npz")
+RESULTS_DIR = os.path.join(PACKAGE_DIR, "results")
 
 # ------------------------------------------------------------- actuator ---
 # Network outputs VOLTAGE in [-V_MAX, V_MAX]; actuator.py maps it to force.
@@ -65,6 +66,14 @@ S_MAX = 0.18
 MAX_LABEL_FACTOR = 1.5     # reject |u| > this * MOTOR_FORCE_MAX
 MAX_FAIL_FRAC = 0.20       # drop a config if it fails more than this fraction
 SEED = 0
+
+# Evaluation MUST draw configs from a different point in the Sobol stream than
+# dataset generation, or the "held-out" interpolation split is not held out.
+# Both used default_rng(SEED) -> pu.sample_configs, which made the eval configs
+# byte-identical to training configs 0..n-1 and every interpolation number a
+# training-set number. Offsetting breaks the stream; the assert in
+# evaluate.sample_interp_configs proves it stayed broken-free.
+EVAL_SEED_OFFSET = 10_000
 
 # Seed-dataset sampling is a *mixture* of STATE_PERT plus two wider regimes,
 # layered on top without touching MPCController: off-center stabilization

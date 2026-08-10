@@ -18,17 +18,14 @@ from pinn import param_utils as pu
 from mpc import MOTOR_FORCE_MAX
 
 
-def lqr_gain(mlparams, dt=None, Q=None, R=1e-2):
+def linearize_discrete(mlparams, dt=None):
     """
-    Discrete-time LQR gain linearized about the upright equilibrium
-    (x=0, u=0): autograd jacobians of forward_dynamics + exact
-    zero-order-hold discretization (matrix exponential). u = -K @ x [N].
+    Linearize forward_dynamics about the upright equilibrium (x=0, u=0) via
+    autograd jacobians, then discretize exactly with a zero-order hold
+    (matrix exponential of the augmented system). Returns (Ad, Bd).
     """
     dt = dt or C.DT
     params = pu.full_params_from_ml(*mlparams)
-    Qm = np.diag(C.STATE_COST_W) if Q is None else np.asarray(Q, dtype=np.float64)
-    Rm = np.atleast_2d(np.asarray(R, dtype=np.float64))
-
     x0 = torch.zeros(6, dtype=torch.float64, requires_grad=True)
     u0 = torch.zeros((), dtype=torch.float64, requires_grad=True)
     A = torch.autograd.functional.jacobian(
@@ -40,11 +37,43 @@ def lqr_gain(mlparams, dt=None, Q=None, R=1e-2):
     M = np.zeros((n + 1, n + 1))
     M[:n, :n], M[:n, n:] = A, B
     Md = expm(M * dt)
-    Ad, Bd = Md[:n, :n], Md[:n, n:]
+    return Md[:n, :n], Md[:n, n:]
 
-    P = solve_discrete_are(Ad, Bd, Qm, Rm)
-    K = np.linalg.solve(Rm + Bd.T @ P @ Bd, Bd.T @ P @ Ad)
-    return K
+
+def _are(mlparams, dt=None, Q=None, R=1e-2):
+    """(Ad, Bd, Rm, P) for the upright linearization. P solves the DARE."""
+    Ad, Bd = linearize_discrete(mlparams, dt)
+    Qm = np.diag(C.STATE_COST_W) if Q is None else np.asarray(Q, dtype=np.float64)
+    Rm = np.atleast_2d(np.asarray(R, dtype=np.float64))
+    return Ad, Bd, Rm, solve_discrete_are(Ad, Bd, Qm, Rm)
+
+
+def lqr_gain(mlparams, dt=None, Q=None, R=1e-2):
+    """
+    Discrete-time LQR gain linearized about the upright equilibrium.
+    u = -K @ x [N].
+    """
+    Ad, Bd, Rm, P = _are(mlparams, dt, Q, R)
+    return np.linalg.solve(Rm + Bd.T @ P @ Bd, Bd.T @ P @ Ad)
+
+
+def lqr_cost_to_go(mlparams, dt=None, Q=None, R=1e-2):
+    """
+    The DARE solution P -- the infinite-horizon optimal cost-to-go for the
+    upright linearization, i.e. x'Px is the cost of running LQR forever from x.
+
+    Intended as an MPC TERMINAL cost. Qf = 10*Q (mpc.py) is an arbitrary
+    multiplier that tells the optimizer nothing about what happens after the
+    horizon ends, so with a short horizon it happily parks the cart at s_max.
+    A terminal cost that approximates the true value function makes the finite
+    horizon behave like an infinite one, which is the cheap alternative to
+    paying for more horizon steps.
+
+    Caveat: exact only for the linearization. Off the origin the smoothed-
+    Coulomb friction term contributes cf/eps of damping at x=0 that saturates
+    away from it, so P is optimistic about how much help the plant gives.
+    """
+    return _are(mlparams, dt, Q, R)[3]
 
 
 def lqr_policy(K):

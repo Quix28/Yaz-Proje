@@ -128,10 +128,18 @@ def check_evaluate():
     assert m["success"] and m["settling_time"] == m["settling_time"]  # not NaN
     assert m["peak_s"] >= abs(x0[0]) - 1e-9
 
-    rng = np.random.default_rng(0)
+    # Must use the eval offset: an un-offset rng reproduces training configs
+    # exactly, and sample_interp_configs now asserts against that. The pair of
+    # checks below IS the regression test for the split-leak bug.
+    rng = np.random.default_rng(C.EVAL_SEED_OFFSET)
     interp = E.sample_interp_configs(3, rng)
     extrap = E.sample_extrap_configs(3, rng)
     assert interp.shape == (3, 4) and extrap.shape == (3, 4)
+    try:
+        E.sample_interp_configs(3, np.random.default_rng(C.SEED))
+        raise AssertionError("interp split must reject an un-offset rng")
+    except AssertionError as ex:
+        assert "leaked" in str(ex), f"wrong failure for un-offset rng: {ex}"
     low, high = np.array(C.PARAM_LOW), np.array(C.PARAM_HIGH)
     assert all(np.any(c < low) or np.any(c > high) for c in extrap), \
         "extrapolation configs must fall outside the training box"

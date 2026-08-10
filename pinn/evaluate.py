@@ -16,6 +16,9 @@ was trained/rolled-out against.
 """
 import argparse
 import os
+import json
+import subprocess
+import time
 
 import numpy as np
 import torch
@@ -26,7 +29,7 @@ from pinn import dataset as ds
 from pinn import losses as L
 from pinn.model import load_checkpoint
 from pinn.actuator import voltage_to_force
-from pinn.baselines import lqr_gain, lqr_policy, train_plain_imitation
+from pinn.baselines import lqr_gain, lqr_policy, lqr_cost_to_go
 from pinn.train import train
 from mpc import MOTOR_FORCE_MAX
 
@@ -64,7 +67,9 @@ def rollout_metrics(traj, dt=None):
     T = len(states)
     within_tol = np.all(np.abs(states) <= SETTLE_TOL, axis=1)
     win = max(1, int(SETTLE_WINDOW_FRAC * T))
-    settle_idx = next((t for t in range(T - win) if within_tol[t:].all()), None)
+    # range(T - win + 1): the +1 matters -- without it a trajectory that settles
+    # exactly at the start of the trailing window is scored as never settling.
+    settle_idx = next((t for t in range(T - win + 1) if within_tol[t:].all()), None)
     settled = settle_idx is not None
     success = settled and not traj["diverged"] and float(np.abs(states[:, 0]).max()) <= C.S_MAX
     return dict(
@@ -151,9 +156,61 @@ def make_lqr_policy(**lqr_kwargs):
     return make_policy
 
 
-def sample_interp_configs(n, rng):
-    """Held-out configs inside the training (m,l) box -- same distribution, unseen combos."""
-    return pu.sample_configs(n, rng=rng)
+def make_mpc_policy(qf_lqr=False, **mpc_kwargs):
+    """The MPC teacher itself, as an evaluate_policy-compatible force policy.
+
+    Exists so the teacher can be scored on the SAME metric as its students.
+    Without this, a teacher that fails closed-loop is invisible -- which is
+    exactly how a 1.0s horizon (C.MPC_NP=20 at C.DT=0.05) shipped: it stabilizes
+    the angles and parks the cart at s_max, because recentring is infeasible
+    inside the horizon, and every label inherits that.
+
+    qf_lqr: use the infinite-horizon LQR cost-to-go as the terminal cost instead
+    of the arbitrary Qf = 10*Q. A terminal cost that approximates the true
+    value function is what lets a SHORT horizon behave like a long one.
+    """
+    from mpc import MPCController
+
+    def make_policy(mlparams):
+        ml = np.asarray(mlparams)
+        params = pu.full_params_from_ml(*ml)
+        kw = dict(mpc_kwargs)
+        if qf_lqr:
+            kw["Qf"] = lqr_cost_to_go(ml, dt=C.DT)
+        ctrl = MPCController(params, dt=C.DT, s_max=C.S_MAX, **kw)
+
+        def policy(state):
+            try:
+                return ctrl.solve(state)[0]
+            except RuntimeError:
+                # Same warm-start reset dataset.py:80 uses after a failed solve:
+                # a poisoned previous iterate makes every later solve fail too.
+                ctrl._X_prev = np.zeros_like(ctrl._X_prev)
+                ctrl._U_prev = np.zeros_like(ctrl._U_prev)
+                return 0.0
+        return policy
+    return make_policy
+
+
+def sample_interp_configs(n, rng, dataset_path=None):
+    """Held-out configs inside the training (m,l) box -- same distribution, unseen combos.
+
+    Callers MUST pass an rng offset by C.EVAL_SEED_OFFSET. The assert below is
+    the guard: dataset generation draws from default_rng(C.SEED) into the same
+    scrambled Sobol stream, so an un-offset rng reproduces training configs
+    0..n-1 exactly -- which silently turns this split into a training-set
+    measurement. Verified: it was 10/10 identical before the offset landed.
+    """
+    cfg = pu.sample_configs(n, rng=rng)
+    try:
+        seen = {tuple(np.round(r, 12)) for r in ds.load_dataset(dataset_path)["mlparams"]}
+    except (FileNotFoundError, OSError):
+        return cfg          # no dataset on disk yet -- nothing to leak from
+    leaked = [tuple(c) for c in cfg if tuple(np.round(c, 12)) in seen]
+    assert not leaked, (
+        f"interpolation split leaked {len(leaked)}/{n} training configs "
+        f"(e.g. {leaked[0]}) -- offset the eval rng by C.EVAL_SEED_OFFSET")
+    return cfg
 
 
 def sample_extrap_configs(n, rng):
@@ -188,8 +245,9 @@ def run_ablation(full_ckpt, dataset_path=None, ckpt_dir=None, configs=None,
     the comparison is confounded by the dataset rather than the loss terms.
     """
     ckpt_dir = ckpt_dir or C.CKPT_DIR
-    rng = np.random.default_rng(seed)
-    configs = sample_interp_configs(n_configs, rng) if configs is None else configs
+    rng = np.random.default_rng(seed + C.EVAL_SEED_OFFSET)
+    configs = (sample_interp_configs(n_configs, rng, dataset_path=dataset_path)
+               if configs is None else configs)
 
     results = {}
     for name, overrides in ABLATIONS.items():
@@ -205,6 +263,8 @@ def run_ablation(full_ckpt, dataset_path=None, ckpt_dir=None, configs=None,
         rows = evaluate_policy(make_pinn_policy(ckpt), configs, n_ics, steps,
                                seed=seed, ic_sampler=ic_sampler)
         results[name] = summarize(rows, steps=steps)
+        results[name]["rows"] = rows      # keep per-rollout detail: not recoverable later,
+                                          # since the leak fix changed the config stream
         if verbose:
             s = results[name]
             print(f"[ablation] {name:22s} success={s['success_rate']:.2f} "
@@ -227,12 +287,18 @@ def run_generalization(full_ckpt, plain_ckpt=None, dataset_path=None, ckpt_dir=N
     if not os.path.exists(plain_ckpt):
         if verbose:
             print("[generalization] training plain-imitation-NN baseline...", flush=True)
-        train_plain_imitation(dataset_path=dataset_path, out_ckpt=plain_ckpt,
-                             seed=seed, verbose=verbose, epochs=epochs)
+        # "Plain imitation" IS the data-only ablation -- same weight overrides.
+        # Call train directly so the two can't drift apart: the previous
+        # train_plain_imitation wrapper had no epochs= param, so this call
+        # raised TypeError whenever --generalization ran without --ablation
+        # (with --ablation first, the os.path.exists check above hid it).
+        train(dataset_path=dataset_path, out_ckpt=plain_ckpt, seed=seed,
+              verbose=verbose, epochs=epochs,
+              weight_overrides=ABLATIONS["data_only"])
 
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng(seed + C.EVAL_SEED_OFFSET)
     splits = {
-        "interpolation": sample_interp_configs(n_configs, rng),
+        "interpolation": sample_interp_configs(n_configs, rng, dataset_path=dataset_path),
         "extrapolation": sample_extrap_configs(n_configs, rng),
     }
     controllers = {
@@ -248,6 +314,7 @@ def run_generalization(full_ckpt, plain_ckpt=None, dataset_path=None, ckpt_dir=N
             rows = evaluate_policy(make_policy, configs, n_ics, steps, seed=seed,
                                    ic_sampler=ic_sampler)
             results[split_name][ctrl_name] = summarize(rows, steps=steps)
+            results[split_name][ctrl_name]["rows"] = rows
             if verbose:
                 s = results[split_name][ctrl_name]
                 print(f"[generalization] {split_name:14s} {ctrl_name:20s} "
@@ -260,11 +327,23 @@ def run_generalization(full_ckpt, plain_ckpt=None, dataset_path=None, ckpt_dir=N
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--full-ckpt", default=os.path.join(C.CKPT_DIR, "round0_best.pt"),
-                    help="checkpoint for the 'full' variant. NOTE round0_best.pt from a "
-                         "pre-fix run may be a data-only warmup net; pass the intended one.")
+    ap.add_argument("--full-ckpt", default=os.path.join(C.CKPT_DIR, "spec60_full.pt"),
+                    help="checkpoint for the 'full' variant. Do NOT pass round0_best.pt: it is "
+                         "epoch 26 of 300, inside the data-only warmup, so it IS the data-only "
+                         "net (making the ablation compare data-only to itself), and it carries "
+                         "pre-60-tooth norm stats and a 173N actuator.")
     ap.add_argument("--ablation", action="store_true")
     ap.add_argument("--generalization", action="store_true")
+    ap.add_argument("--mpc", action="store_true",
+                    help="score the MPC TEACHER on this same metric. The teacher is the ceiling "
+                         "for any student, so if it fails here nothing downstream can pass.")
+    ap.add_argument("--mpc-np", type=int, default=None,
+                    help="MPC horizon for --mpc. Deliberately NOT defaulted to config.MPC_NP so "
+                         "it can be swept; omit to use the MPCController default.")
+    ap.add_argument("--mpc-qf-lqr", action="store_true",
+                    help="use the LQR cost-to-go as MPC terminal cost instead of Qf=10*Q")
+    ap.add_argument("--mpc-thdot-max", type=float, default=None,
+                    help="angular-rate constraint for --mpc (mpc.py wires this but never passes it)")
     ap.add_argument("--n-configs", type=int, default=10)
     ap.add_argument("--n-ics", type=int, default=8)
     ap.add_argument("--steps", type=int, default=150)
@@ -274,26 +353,70 @@ if __name__ == "__main__":
     ap.add_argument("--dataset", default=None, help="dataset .npz for triggered training")
     ap.add_argument("--center-ics", action="store_true",
                     help="centre-only ICs instead of the off-centre/push mixture")
-    ap.add_argument("--json-out", default=None, help="write results to this JSON path")
+    ap.add_argument("--seed", type=int, default=C.SEED,
+                    help="seed for config draws and ICs (was silently always config.SEED)")
+    ap.add_argument("--json-out", default=None,
+                    help="override the results path; results are written either way")
     args = ap.parse_args()
 
-    if not args.ablation and not args.generalization:
+    if not (args.ablation or args.generalization or args.mpc):
         args.ablation = args.generalization = True
 
     sampler = sample_center_states if args.center_ics else None
     common = dict(n_configs=args.n_configs, n_ics=args.n_ics, steps=args.steps,
-                  epochs=args.epochs, dataset_path=args.dataset, ic_sampler=sampler)
+                  epochs=args.epochs, dataset_path=args.dataset, ic_sampler=sampler,
+                  seed=args.seed)
+
+    def _git_commit():
+        try:
+            return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"],
+                                           cwd=os.path.dirname(C.PACKAGE_DIR),
+                                           stderr=subprocess.DEVNULL).decode().strip()
+        except Exception:
+            return "unknown"
+
+    # Provenance: without motor_force_max and git_commit, a result cannot be
+    # attributed to a plant spec, which is how 173N-era numbers stayed quotable.
     out = {"config": {"full_ckpt": args.full_ckpt, "center_ics": args.center_ics,
                       "steps": args.steps, "n_configs": args.n_configs,
-                      "n_ics": args.n_ics, "dataset": args.dataset}}
+                      "n_ics": args.n_ics, "seed": args.seed, "epochs": args.epochs,
+                      "dataset": args.dataset or C.SEED_DATASET,
+                      "motor_force_max": float(MOTOR_FORCE_MAX),
+                      "mpc_np": args.mpc_np, "mpc_qf_lqr": args.mpc_qf_lqr,
+                      "mpc_thdot_max": args.mpc_thdot_max,
+                      "git_commit": _git_commit()}}
+
+    if args.mpc:
+        mpc_kw = {}
+        if args.mpc_np is not None:
+            mpc_kw["Np"] = args.mpc_np
+        if args.mpc_thdot_max is not None:
+            mpc_kw["thdot_max"] = args.mpc_thdot_max
+        rng = np.random.default_rng(args.seed + C.EVAL_SEED_OFFSET)
+        cfgs = sample_interp_configs(args.n_configs, rng, dataset_path=args.dataset)
+        rows = evaluate_policy(make_mpc_policy(qf_lqr=args.mpc_qf_lqr, **mpc_kw),
+                               cfgs, args.n_ics, args.steps, seed=args.seed,
+                               ic_sampler=sampler)
+        s = summarize(rows, steps=args.steps)
+        s["rows"] = rows
+        out["mpc_teacher"] = s
+        print(f"[mpc teacher] Np={args.mpc_np or 'default'} qf_lqr={args.mpc_qf_lqr} "
+              f"thdot_max={args.mpc_thdot_max}\n"
+              f"  success={s['success_rate']:.3f} diverged={s['diverged_rate']:.3f} "
+              f"steps={s['steps_survived_mean']:.0f}/{args.steps + 1} "
+              f"settle={s['settling_time_mean']:.2f} peak_s={s['peak_s_mean']:.4f} "
+              f"peak_th1={s['peak_th1_mean']:.4f}", flush=True)
 
     if args.ablation:
         out["ablation"] = run_ablation(args.full_ckpt, **common)
     if args.generalization:
         out["generalization"] = run_generalization(args.full_ckpt, **common)
 
-    if args.json_out:
-        import json
-        with open(args.json_out, "w") as f:
-            json.dump(out, f, indent=2)
-        print(f"[evaluate] wrote {args.json_out}")
+    # Always persist. The 0%-vs-12% headline existed only as prose because this
+    # was opt-in; an unwritten result is an unciteable one.
+    path = args.json_out or os.path.join(
+        C.RESULTS_DIR, f"eval_{time.strftime('%Y%m%d_%H%M%S')}.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(out, f, indent=2)
+    print(f"[evaluate] wrote {path}")
