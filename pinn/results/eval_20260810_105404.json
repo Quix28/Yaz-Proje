@@ -1,0 +1,48 @@
+{
+  "config": {
+    "full_ckpt": "/Users/quix28/Desktop/Yaz Proje/pinn/checkpoints/spec60_full.pt",
+    "center_ics": true,
+    "steps": 20,
+    "n_configs": 1,
+    "n_ics": 1,
+    "seed": 0,
+    "epochs": null,
+    "dataset": "/Users/quix28/Desktop/Yaz Proje/pinn/data/seed_dataset.npz",
+    "motor_force_max": 57.59586531581289,
+    "mpc_np": 20,
+    "mpc_qf_lqr": false,
+    "mpc_thdot_max": null,
+    "git_commit": "92f763f"
+  },
+  "mpc_teacher": {
+    "n": 1,
+    "success_rate": 0.0,
+    "diverged_rate": 0.0,
+    "steps_survived_mean": 21.0,
+    "settling_time_mean": NaN,
+    "control_effort_mean": 68.767215610434,
+    "peak_s_mean": 0.18000000999988672,
+    "peak_th1_mean": 0.2122465570463687,
+    "peak_th2_mean": 0.1377079428191416,
+    "upright_to_end_rate": 1.0,
+    "rows": [
+      {
+        "success": false,
+        "diverged": false,
+        "settling_time": NaN,
+        "peak_s": 0.18000000999988672,
+        "peak_th1": 0.2122465570463687,
+        "peak_th2": 0.1377079428191416,
+        "control_effort": 68.767215610434,
+        "steps_survived": 21,
+        "config_id": 0,
+        "ml": [
+          0.11202139861881732,
+          0.06476676022633909,
+          0.33770693123340606,
+          0.3171038005873561
+        ]
+      }
+    ]
+  }
+}

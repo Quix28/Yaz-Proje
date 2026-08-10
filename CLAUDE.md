@@ -94,7 +94,29 @@ Rig is built; system-ID, encoder filtering, weight export, and the safety watchd
 
 **Known-good numbers do not exist yet.** `val_data_mse` never improved in either run (22.77 → 21.94; 18.54 → 21.84 within round 1) — the `val_combined` gain came from the physics/barrier terms, not from better imitation.
 
-### Open blocker: the MPC teacher itself fails
+### Teacher fix: terminal cost + horizon (measured 2026-08-10)
+
+Success below is the corrected metric — see the note on solver slack after the table.
+
+| `Np` | `Qf` | success | diverged | steps survived | peak θ₁ |
+|---|---|---|---|---|---|
+| 20 | 10·Q *(what generated the dataset)* | **0.016** | 0.906 | 36/151 | 1.351 |
+| 20 | P | 0.312 | 0.688 | 55/151 | 0.917 |
+| 30 | P | 0.391 | 0.609 | 68/151 | 0.962 |
+| 40 | 10·Q | 0.422 | 0.516 | 81/151 | 0.742 |
+| 40 | P | 0.562 | 0.438 | 92/151 | 0.744 |
+| 50 | P | **0.609** | 0.391 | 98/151 | 0.527 |
+
+8 configs × 8 centre ICs × 150 steps, held-out configs (`EVAL_SEED_OFFSET`), `pinn/results/eval_*.json`.
+
+Two conclusions:
+
+1. **`Qf = P` (the LQR cost-to-go, `baselines.lqr_cost_to_go`) earns its place independently of horizon** — at a fixed `Np=40` it lifts success 0.422 → 0.562. `Qf = 10*Q` tells the optimizer nothing about what happens after the horizon, so it parks the cart; `P` approximates the true value function and the finite horizon starts behaving like an infinite one.
+2. **Horizon returns flatten after `Np=40`** (0.562 → 0.609 for 50), while dataset-generation cost grows superlinearly. `Np=50` clears 0.6; `Np=40` at 0.562 is a defensible cheaper choice, since 0.6 was a chosen gate and not a physical threshold.
+
+**Metric caveat that mattered:** `success` requires `peak_s <= S_MAX`, but the cart bound is a *hard* MPC constraint the optimizer may ride exactly to `S_MAX`, and IPOPT satisfies it only to ~1e-8. Rollouts that settled cleanly and never diverged were being failed for a 10-nanometre overshoot — about 20 points of success across the sweep. `S_MAX_SLACK = 1e-6` fixes it. This was only visible because per-rollout rows are persisted; the summary showed a plain failure with no hint that settling had occurred.
+
+### Original blocker: the MPC teacher itself fails
 
 Measured 2026-08-10: the teacher scores **0% success and 88–94% divergence** under `evaluate.py`'s own metric at `MPC_NP = 20`. At `DT = 0.05` that is a **1.0 s horizon**, shorter than this plant's cart-recentring timescale, so the teacher's converged optimum stabilizes the angles and *parks the cart at `s = s_max`* — verified, `s = 0.1800` held for 9 consecutive steps. Every one of the 15,996 labels encodes that policy, so the student's 0% is faithful imitation of a broken teacher. `Np=40` raises center-IC success to 37.5%.
 
