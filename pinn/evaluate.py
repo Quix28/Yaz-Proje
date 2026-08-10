@@ -37,6 +37,16 @@ from mpc import MOTOR_FORCE_MAX
 SETTLE_TOL = np.array([0.02, 0.05, 0.05, 0.05, 0.2, 0.2])
 SETTLE_WINDOW_FRAC = 0.2   # must stay inside SETTLE_TOL for the trailing 20% of the rollout
 
+# Slack on the peak-|s| success test. The MPC's cart-position bound is a HARD
+# constraint, so the optimizer is entitled to ride it exactly to S_MAX, and IPOPT
+# satisfies constraints only to its own tolerance (~1e-8). Testing peak_s <= S_MAX
+# with no slack therefore failed rollouts that had settled cleanly and never
+# diverged, purely because the cart overshot by ~1e-8 m -- 10 nanometres. That
+# suppressed roughly 20 percentage points of measured success across the horizon
+# sweep. 1e-6 is three orders above solver tolerance and six below any excursion
+# that means anything physically.
+S_MAX_SLACK = 1e-6
+
 
 def rollout(policy_fn, mlparams, x0, steps, dt=None):
     """
@@ -71,7 +81,8 @@ def rollout_metrics(traj, dt=None):
     # exactly at the start of the trailing window is scored as never settling.
     settle_idx = next((t for t in range(T - win + 1) if within_tol[t:].all()), None)
     settled = settle_idx is not None
-    success = settled and not traj["diverged"] and float(np.abs(states[:, 0]).max()) <= C.S_MAX
+    success = (settled and not traj["diverged"]
+               and float(np.abs(states[:, 0]).max()) <= C.S_MAX + S_MAX_SLACK)
     return dict(
         success=bool(success),
         diverged=bool(traj["diverged"]),
