@@ -45,7 +45,12 @@ def _rollout_pinn(model, params, mlparams, x0, steps, dt):
 def run_round(round_idx, init_ckpt, seed=None, verbose=True,
               dataset_path=None, out_dir=None, ckpt_dir=None, use_wandb=False):
     """
-    One DAgger round. Returns (dataset_path, ckpt_path).
+    One DAgger round. Returns (dataset_path, ckpt_path, n_added) -- THREE values.
+
+    This docstring previously claimed two. A driver written against it did
+    `ds_path, ck = run_round(...)` and died with "too many values to unpack"
+    AFTER round 1 had already saved, which silently cost rounds 2 and 3.
+    Prefer run() below over hand-written drivers.
 
     out_dir/ckpt_dir default to C.DATA_DIR/C.CKPT_DIR (the real project
     dirs) -- override them (e.g. to a tempdir) for smoke/e2e testing so
@@ -123,13 +128,20 @@ def run_round(round_idx, init_ckpt, seed=None, verbose=True,
     return ds_path, ckpt_path, n_added
 
 
-def run(rounds=None, seed_ckpt=None, verbose=True, use_wandb=False):
-    """Run all DAgger rounds starting from the seed-trained checkpoint.
+def run(rounds=None, seed_ckpt=None, verbose=True, use_wandb=False,
+        start_round=1, dataset_path=None):
+    """Run DAgger rounds starting from a seed-trained checkpoint.
 
     Each round's assembled dataset (seed + all relabeled points so far) is
     threaded into the next round's `dataset_path` -- otherwise every round
     would silently reload the raw seed dataset and DAgger would never
     actually accumulate visited-state data across rounds.
+
+    start_round/dataset_path exist to RESUME an interrupted sequence without
+    redoing completed rounds. To continue after round 1, pass that round's
+    checkpoint as seed_ckpt and its dataset as dataset_path -- omitting the
+    dataset silently falls back to the raw seed set and throws away every
+    relabeled point round 1 produced.
     """
     rounds = C.DAGGER_ROUNDS if rounds is None else rounds
     ckpt = seed_ckpt or os.path.join(C.CKPT_DIR, "round0_best.pt")
@@ -138,12 +150,27 @@ def run(rounds=None, seed_ckpt=None, verbose=True, use_wandb=False):
             f"seed checkpoint not found: {ckpt} -- run `python -m pinn.train` "
             f"(Step 5a) first to produce it before starting DAgger."
         )
-    ds_path = None
-    for k in range(1, rounds + 1):
+    if start_round > 1 and dataset_path is None:
+        raise ValueError(
+            f"resuming at round {start_round} without --dataset would discard every "
+            f"point earlier rounds relabeled; pass the previous round's dataset .npz"
+        )
+    ds_path = dataset_path
+    for k in range(start_round, rounds + 1):
         ds_path, ckpt, _ = run_round(k, ckpt, dataset_path=ds_path, verbose=verbose,
                                      use_wandb=use_wandb)
     return ckpt
 
 
 if __name__ == "__main__":
-    run()
+    import argparse
+    ap = argparse.ArgumentParser(description="DAgger rounds, resumable.")
+    ap.add_argument("--rounds", type=int, default=None, help=f"last round (default {C.DAGGER_ROUNDS})")
+    ap.add_argument("--from-round", type=int, default=1, help="first round to run; >1 resumes")
+    ap.add_argument("--ckpt", default=None, help="checkpoint to warm-start from")
+    ap.add_argument("--dataset", default=None,
+                    help="dataset .npz to build on; REQUIRED when --from-round > 1")
+    ap.add_argument("--wandb", action="store_true")
+    a = ap.parse_args()
+    run(rounds=a.rounds, seed_ckpt=a.ckpt, use_wandb=a.wandb,
+        start_round=a.from_round, dataset_path=a.dataset)
