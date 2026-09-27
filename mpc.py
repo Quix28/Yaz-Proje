@@ -235,15 +235,26 @@ class MPCController:
         self.x0_param, self.xref_param = x0_param, xref_param
         self._X_prev = np.zeros((NX, Np + 1))
         self._U_prev = np.zeros((1, Np))
+        self.last_cost = float("nan")
 
-    def solve(self, x0, xref=None):
+    def solve(self, x0, xref=None, cold=False):
         """
         x0:   (6,) current state
         xref: (6,) target state, default upright/centered (zeros)
+        cold: seed IPOPT with zeros instead of the shifted previous solution.
+              Dataset labels need this: the NLP is non-convex, and a warm
+              start carried over from an unrelated state lands in a different
+              local optimum -- same state, labels 10-20 N RMS apart at Np=40.
+              A cold solve is a function of x0 alone (bit-reproducible) and
+              was also the lowest-cost optimum for 78-90% of states, versus
+              0-10% when seeded with an LQR rollout.
         returns: (u0, X_pred, U_pred)
         """
         if xref is None:
             xref = np.zeros(NX)
+        if cold:
+            self._X_prev = np.zeros_like(self._X_prev)
+            self._U_prev = np.zeros_like(self._U_prev)
 
         self.opti.set_value(self.x0_param, x0)
         self.opti.set_value(self.xref_param, xref)
@@ -254,6 +265,7 @@ class MPCController:
 
         X_sol = sol.value(self.X)
         U_sol = np.atleast_2d(sol.value(self.U))
+        self.last_cost = float(sol.value(self.opti.f))
 
         self._X_prev = np.hstack([X_sol[:, 1:], X_sol[:, -1:]])
         self._U_prev = np.hstack([U_sol[:, 1:], U_sol[:, -1:]])

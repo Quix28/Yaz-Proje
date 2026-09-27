@@ -1,10 +1,11 @@
 """
 Step 2: seed dataset generation via the MPC teacher.
 
-For each sampled pendulum config, build ONE MPCController and warm-start it
-across many small-perturbation initial states, logging (state, m,l) -> u*.
-Building a controller per sample is catastrophic (each pays IPOPT's ~19 s
-cold start); one-per-config + warm starts keeps warm solves at ~0.3 s.
+For each sampled pendulum config, build ONE MPCController and solve it at
+many initial states, logging (state, m,l) -> u*. Building a controller per
+sample is catastrophic (each pays the NLP construction cost), so it is built
+once per config. Each label is a COLD solve: warm-starting from the previous,
+unrelated state made labels depend on solve order (see label()).
 
 Parallelized across configs with multiprocessing (processes, not threads --
 CasADi/IPOPT objects are not thread-safe). Each worker owns its controller.
@@ -54,6 +55,32 @@ def _sample_states(n, rng):
     return states
 
 
+def make_teacher(mlparams):
+    """The MPC teacher for one config: horizon C.MPC_NP, terminal cost = the
+    LQR cost-to-go P. Qf = 10*Q (the MPCController default) says nothing about
+    what happens after the horizon, so the teacher parks the cart at s_max --
+    1.6% closed-loop success at Np=20, versus 56% at Np=40 with Qf = P."""
+    from mpc import MPCController
+    from pinn.baselines import lqr_cost_to_go
+    ml = np.asarray(mlparams, dtype=np.float64)
+    return MPCController(pu.full_params_from_ml(*ml), Np=C.MPC_NP, dt=C.DT,
+                         s_max=C.S_MAX, Qf=lqr_cost_to_go(ml, dt=C.DT))
+
+
+def label(ctrl, x):
+    """Teacher force label for state x, or None if the solve fails or the
+    label is out of range. Always a cold solve, so the label depends on x
+    alone and not on which state the controller happened to solve before."""
+    from mpc import MOTOR_FORCE_MAX
+    try:
+        u0, _, _ = ctrl.solve(x, cold=True)
+    except RuntimeError:
+        return None
+    if not np.isfinite(u0) or abs(u0) > C.MAX_LABEL_FACTOR * MOTOR_FORCE_MAX:
+        return None
+    return u0
+
+
 def generate_for_config(args):
     """
     Worker: solve the MPC for many ICs of a single config.
@@ -63,26 +90,15 @@ def generate_for_config(args):
     Importing torch/casadi happens lazily inside the worker process.
     """
     config_id, mlparams, n_states, seed = args
-    from mpc import MPCController, MOTOR_FORCE_MAX  # per-process import
 
     rng = np.random.default_rng(seed)
-    params = pu.full_params_from_ml(*mlparams)
-    ctrl = MPCController(params, Np=C.MPC_NP, dt=C.DT, s_max=C.S_MAX)
+    ctrl = make_teacher(mlparams)
 
     states, us = [], []
     n_fail = 0
-    ics = _sample_states(n_states, rng)
-    for x0 in ics:
-        try:
-            u0, _, _ = ctrl.solve(x0)
-        except RuntimeError:
-            n_fail += 1
-            # a failed solve can leave a poisoned warm-start; reset it so
-            # one failure doesn't cascade into the next sample.
-            ctrl._X_prev = np.zeros_like(ctrl._X_prev)
-            ctrl._U_prev = np.zeros_like(ctrl._U_prev)
-            continue
-        if not np.isfinite(u0) or abs(u0) > C.MAX_LABEL_FACTOR * MOTOR_FORCE_MAX:
+    for x0 in _sample_states(n_states, rng):
+        u0 = label(ctrl, x0)
+        if u0 is None:
             n_fail += 1
             continue
         states.append(x0)

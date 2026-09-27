@@ -61,7 +61,10 @@ COLLOC_STATE_PERT = np.array([0.08, 0.30, 0.30, 0.10, 0.60, 0.60])
 N_CONFIGS = 200            # distinct pendulum configs
 N_STATES_PER_CONFIG = 80   # initial states solved per config
 DT = 0.05
-MPC_NP = 20
+MPC_NP = 40                # 2.0 s horizon. 20 (1.0 s) is shorter than the cart-
+                           # recentring timescale: 1.6% closed-loop success vs 56%
+                           # at 40 (with Qf = LQR P, see dataset.make_teacher).
+                           # 50 buys only 56 -> 61% for superlinear solve cost.
 S_MAX = 0.18
 MAX_LABEL_FACTOR = 1.5     # reject |u| > this * MOTOR_FORCE_MAX
 MAX_FAIL_FRAC = 0.20       # drop a config if it fails more than this fraction

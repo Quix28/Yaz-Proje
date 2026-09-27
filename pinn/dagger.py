@@ -22,7 +22,6 @@ from pinn import losses as L
 from pinn import train as T
 from pinn.model import load_checkpoint
 from pinn.actuator import voltage_to_force
-from mpc import MOTOR_FORCE_MAX
 
 
 @torch.no_grad()
@@ -60,8 +59,6 @@ def run_round(round_idx, init_ckpt, seed=None, verbose=True,
     out_dir = out_dir or C.DATA_DIR
     ckpt_dir = ckpt_dir or C.CKPT_DIR
     rng = np.random.default_rng(seed)
-    from mpc import MPCController
-
     model, _ = load_checkpoint(init_ckpt)
     model.eval()
 
@@ -74,7 +71,7 @@ def run_round(round_idx, init_ckpt, seed=None, verbose=True,
 
     for ci, ml in enumerate(configs):
         params = pu.full_params_from_ml(*ml)
-        ctrl = MPCController(params, Np=C.MPC_NP, dt=C.DT, s_max=C.S_MAX)
+        ctrl = ds.make_teacher(ml)
 
         collected = []
         ics = ds._sample_states(C.DAGGER_ICS, rng)  # same off-center/push mix as the seed set
@@ -82,15 +79,10 @@ def run_round(round_idx, init_ckpt, seed=None, verbose=True,
             visited = _rollout_pinn(model, params, ml, x0, C.DAGGER_STEPS, C.DT)
             collected.extend(visited[::C.DAGGER_SUBSAMPLE])   # subsample
 
-        # relabel visited states with the warm-started teacher
+        # relabel visited states with the same teacher + labeling as the seed set
         for x in collected:
-            try:
-                u0, _, _ = ctrl.solve(x)
-            except RuntimeError:
-                ctrl._X_prev = np.zeros_like(ctrl._X_prev)
-                ctrl._U_prev = np.zeros_like(ctrl._U_prev)
-                continue
-            if not np.isfinite(u0) or abs(u0) > C.MAX_LABEL_FACTOR * MOTOR_FORCE_MAX:
+            u0 = ds.label(ctrl, x)
+            if u0 is None:
                 continue
             new_states.append(x)
             new_ml.append(np.asarray(ml, dtype=np.float64))
