@@ -41,6 +41,13 @@ def _rollout_pinn(model, params, mlparams, x0, steps, dt):
     return visited
 
 
+def _relabel(job):
+    """Worker: label one config's visited states with the seed-set teacher."""
+    ml, states = job
+    ctrl = ds.make_teacher(ml)
+    return [(x, u0) for x in states if (u0 := ds.label(ctrl, x)) is not None]
+
+
 def run_round(round_idx, init_ckpt, seed=None, verbose=True,
               dataset_path=None, out_dir=None, ckpt_dir=None, use_wandb=False):
     """
@@ -69,30 +76,30 @@ def run_round(round_idx, init_ckpt, seed=None, verbose=True,
     next_cid = int(base["config_id"].max()) + 1
     n_added = 0
 
-    for ci, ml in enumerate(configs):
+    jobs = []
+    for ml in configs:
         params = pu.full_params_from_ml(*ml)
-        ctrl = ds.make_teacher(ml)
-
         collected = []
         ics = ds._sample_states(C.DAGGER_ICS, rng)  # same off-center/push mix as the seed set
         for x0 in ics:
             visited = _rollout_pinn(model, params, ml, x0, C.DAGGER_STEPS, C.DT)
             collected.extend(visited[::C.DAGGER_SUBSAMPLE])   # subsample
+        jobs.append((ml, collected))
 
-        # relabel visited states with the same teacher + labeling as the seed set
-        for x in collected:
-            u0 = ds.label(ctrl, x)
-            if u0 is None:
-                continue
-            new_states.append(x)
-            new_ml.append(np.asarray(ml, dtype=np.float64))
-            new_u.append(u0)
-            new_cid.append(next_cid + ci)
-            n_added += 1
-
-        if verbose:
-            print(f"[dagger round {round_idx}] config {ci + 1}/{len(configs)} done "
-                  f"({len(collected)} candidates, {n_added} kept so far)", flush=True)
+    # relabel in parallel across configs: cold solves are ~1 s each at Np=40,
+    # so a serial round would take about an hour
+    import multiprocessing as mp
+    with mp.Pool(max(1, (os.cpu_count() or 2) - 1)) as pool:
+        for ci, ((ml, collected), labeled) in enumerate(zip(jobs, pool.imap(_relabel, jobs))):
+            for x, u0 in labeled:
+                new_states.append(x)
+                new_ml.append(np.asarray(ml, dtype=np.float64))
+                new_u.append(u0)
+                new_cid.append(next_cid + ci)
+                n_added += 1
+            if verbose:
+                print(f"[dagger round {round_idx}] config {ci + 1}/{len(configs)} done "
+                      f"({len(collected)} candidates, {n_added} kept so far)", flush=True)
 
     # assemble round dataset = seed + all relabeled DAgger points
     if n_added > 0:
@@ -121,7 +128,7 @@ def run_round(round_idx, init_ckpt, seed=None, verbose=True,
 
 
 def run(rounds=None, seed_ckpt=None, verbose=True, use_wandb=False,
-        start_round=1, dataset_path=None):
+        start_round=1, dataset_path=None, out_dir=None, ckpt_dir=None):
     """Run DAgger rounds starting from a seed-trained checkpoint.
 
     Each round's assembled dataset (seed + all relabeled points so far) is
@@ -150,7 +157,8 @@ def run(rounds=None, seed_ckpt=None, verbose=True, use_wandb=False,
     ds_path = dataset_path
     for k in range(start_round, rounds + 1):
         ds_path, ckpt, _ = run_round(k, ckpt, dataset_path=ds_path, verbose=verbose,
-                                     use_wandb=use_wandb)
+                                     use_wandb=use_wandb, out_dir=out_dir,
+                                     ckpt_dir=ckpt_dir)
     return ckpt
 
 
@@ -162,7 +170,13 @@ if __name__ == "__main__":
     ap.add_argument("--ckpt", default=None, help="checkpoint to warm-start from")
     ap.add_argument("--dataset", default=None,
                     help="dataset .npz to build on; REQUIRED when --from-round > 1")
+    ap.add_argument("--out-dir", default=None, help="round datasets (default pinn/data)")
+    ap.add_argument("--ckpt-dir", default=None, help="round checkpoints (default pinn/checkpoints)")
     ap.add_argument("--wandb", action="store_true")
     a = ap.parse_args()
+    for d in (a.out_dir, a.ckpt_dir):
+        if d:
+            os.makedirs(d, exist_ok=True)
     run(rounds=a.rounds, seed_ckpt=a.ckpt, use_wandb=a.wandb,
-        start_round=a.from_round, dataset_path=a.dataset)
+        start_round=a.from_round, dataset_path=a.dataset,
+        out_dir=a.out_dir, ckpt_dir=a.ckpt_dir)
