@@ -35,8 +35,10 @@ def _rollout_pinn(model, params, mlparams, x0, steps, dt):
         V = model(x.unsqueeze(0), ml_t).to(torch.float64).squeeze(0)
         F = voltage_to_force(V, x[3])
         x = L.rk4_step(x.unsqueeze(0), F.unsqueeze(0), batched, dt).squeeze(0)
-        if not torch.isfinite(x).all() or x.abs().max() > 10:
-            break                       # diverged; stop this rollout
+        # same divergence test as evaluate.rollout: past it the state is
+        # unrecoverable, and teacher labels there are noise
+        if not torch.isfinite(x).all() or x.abs().max() > 10 or abs(float(x[0])) > 1.5 * C.S_MAX:
+            break
         visited.append(x.numpy().copy())
     return visited
 
@@ -49,7 +51,8 @@ def _relabel(job):
 
 
 def run_round(round_idx, init_ckpt, seed=None, verbose=True,
-              dataset_path=None, out_dir=None, ckpt_dir=None, use_wandb=False):
+              dataset_path=None, out_dir=None, ckpt_dir=None, use_wandb=False,
+              weight_overrides=None):
     """
     One DAgger round. Returns (dataset_path, ckpt_path, n_added) -- THREE values.
 
@@ -123,12 +126,13 @@ def run_round(round_idx, init_ckpt, seed=None, verbose=True,
     ckpt_path = os.path.join(ckpt_dir, f"round{round_idx}_best.pt")
     T.train(dataset_path=ds_path, out_ckpt=ckpt_path, init_ckpt=init_ckpt,
             seed=seed, verbose=verbose, use_wandb=use_wandb,
-            wandb_run_name=f"dagger-round{round_idx}", wandb_group="dagger")
+            weight_overrides=weight_overrides, wandb_run_name=f"dagger-round{round_idx}", wandb_group="dagger")
     return ds_path, ckpt_path, n_added
 
 
 def run(rounds=None, seed_ckpt=None, verbose=True, use_wandb=False,
-        start_round=1, dataset_path=None, out_dir=None, ckpt_dir=None):
+        start_round=1, dataset_path=None, out_dir=None, ckpt_dir=None,
+        weight_overrides=None):
     """Run DAgger rounds starting from a seed-trained checkpoint.
 
     Each round's assembled dataset (seed + all relabeled points so far) is
@@ -158,12 +162,13 @@ def run(rounds=None, seed_ckpt=None, verbose=True, use_wandb=False,
     for k in range(start_round, rounds + 1):
         ds_path, ckpt, _ = run_round(k, ckpt, dataset_path=ds_path, verbose=verbose,
                                      use_wandb=use_wandb, out_dir=out_dir,
-                                     ckpt_dir=ckpt_dir)
+                                     ckpt_dir=ckpt_dir, weight_overrides=weight_overrides)
     return ckpt
 
 
 if __name__ == "__main__":
     import argparse
+    from pinn.evaluate import ABLATIONS
     ap = argparse.ArgumentParser(description="DAgger rounds, resumable.")
     ap.add_argument("--rounds", type=int, default=None, help=f"last round (default {C.DAGGER_ROUNDS})")
     ap.add_argument("--from-round", type=int, default=1, help="first round to run; >1 resumes")
@@ -172,6 +177,8 @@ if __name__ == "__main__":
                     help="dataset .npz to build on; REQUIRED when --from-round > 1")
     ap.add_argument("--out-dir", default=None, help="round datasets (default pinn/data)")
     ap.add_argument("--ckpt-dir", default=None, help="round checkpoints (default pinn/checkpoints)")
+    ap.add_argument("--ablation", default=None,
+                    help="retrain each round as this evaluate.ABLATIONS variant, e.g. data_only")
     ap.add_argument("--wandb", action="store_true")
     a = ap.parse_args()
     for d in (a.out_dir, a.ckpt_dir):
@@ -179,4 +186,5 @@ if __name__ == "__main__":
             os.makedirs(d, exist_ok=True)
     run(rounds=a.rounds, seed_ckpt=a.ckpt, use_wandb=a.wandb,
         start_round=a.from_round, dataset_path=a.dataset,
-        out_dir=a.out_dir, ckpt_dir=a.ckpt_dir)
+        out_dir=a.out_dir, ckpt_dir=a.ckpt_dir,
+        weight_overrides=ABLATIONS[a.ablation] if a.ablation else None)

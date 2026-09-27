@@ -145,7 +145,7 @@ DAGGER_ROUNDS = 3
 # exactly 24 DAgger config_ids, 200-223), ~25 min/round. The previous defaults
 # of 40/10/120/5 were ~98 min/round and were never run -- the Jul 28 round
 # monkeypatched these values, so config.py misdescribed the committed artifact.
-DAGGER_CONFIGS = 24        # configs rolled out per round (mix train + unseen)
+DAGGER_CONFIGS = 48        # configs rolled out per round (mix train + unseen)
 DAGGER_ICS = 6             # initial conditions per config
 DAGGER_STEPS = 100         # closed-loop steps per rollout
 DAGGER_SUBSAMPLE = 4       # keep every Nth visited state (avoid flooding)
