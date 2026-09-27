@@ -49,31 +49,65 @@ def loss_data(model, states, mlparams, u_labels):
     return torch.mean((v_pred - v_target.to(v_pred.dtype)) ** 2)
 
 
+_P_CACHE = {}
+
+
+def _cost_to_go(mlparams):
+    """(B,6,6) LQR cost-to-go P for each sample's config, cached per config
+    (a dataset has ~1000 distinct configs; one DARE each, then free)."""
+    from pinn.baselines import lqr_cost_to_go
+    Ps = []
+    for ml in mlparams.detach().cpu().numpy():
+        key = tuple(np.round(ml, 12))
+        if key not in _P_CACHE:
+            _P_CACHE[key] = lqr_cost_to_go(ml, dt=C.DT)
+        Ps.append(_P_CACHE[key])
+    return torch.tensor(np.stack(Ps), dtype=_F64)
+
+
 def _rollout(model, x0, mlparams, dt, n_steps):
     """
     Shared N-step rollout used by both physics and barrier losses.
 
-    Returns (dev_accum, barrier_accum): mean-over-rollout weighted deviation
-    from upright, and mean-over-rollout constraint-violation penalty. Each
+    Returns (L_physics, L_barrier). L_physics is the rollout's cost-to-go
+    ratio: the teacher's own objective over the rollout plus the LQR
+    cost-to-go as terminal value,
+
+        J = sum_k (x_k' Q x_k + R F_k^2) + x_N' P x_N,
+
+    divided by x_0' P x_0 (what LQR predicts it costs to stabilize x_0).
+    L_barrier is the mean-over-rollout constraint-violation penalty. Each
     batch element rolls out under its own pendulum via batched params.
+
+    Why this form. The first version was the mean Q-weighted deviation over
+    a 10-step (0.5 s) rollout: a greedy objective blind to what happens
+    after it -- the same flaw that broke the Np=20 teacher -- and ~400x the
+    data term in magnitude, so once ramped in it switched imitation off.
+    Training on it made closed-loop control worse (v2: 0/64 success vs 4/64
+    data-only). The terminal P gives the rollout a horizon-free value, and
+    the ratio makes it scale-free: ~1 for a policy as good as LQR predicts,
+    regardless of how far x_0 is from upright, so large states cannot
+    dominate the batch and the term sits on the same scale as L_data.
     """
     x = x0.to(_F64)
     batched = pu.batched_torch_params(mlparams, dtype=_F64)
     w = _STATE_W.to(x.device)
+    P = _cost_to_go(mlparams).to(x.device)
+    quad_P = lambda z: torch.einsum("bi,bij,bj->b", z, P, z)
 
     s_max = C.S_MAX
     sdot_max = MOTOR_FREE_SPEED
     du_max = C.DU_MAX
 
-    dev = x.new_zeros(())
+    J0 = quad_P(x)
+    J = x.new_zeros(x.shape[0])
     barrier = x.new_zeros(())
     u_prev = None
     for _ in range(n_steps):
         V = model(x, mlparams).to(_F64)                  # voltage
         F = voltage_to_force(V, x[:, 3])                 # force [N]
+        J = J + torch.sum(w * x ** 2, dim=-1) + C.MPC_R * F ** 2
         x = rk4_step(x, F, batched, dt)
-
-        dev = dev + torch.mean(torch.sum(w * x ** 2, dim=-1))
 
         pen_s = torch.relu(x[:, 0].abs() - s_max) ** 2
         pen_v = torch.relu(x[:, 3].abs() - sdot_max) ** 2
@@ -83,7 +117,8 @@ def _rollout(model, x0, mlparams, dt, n_steps):
         barrier = barrier + torch.mean(pen)
         u_prev = F
 
-    return dev / n_steps, barrier / n_steps
+    J = J + quad_P(x)
+    return torch.mean(J / (J0 + C.PHYS_J0_FLOOR)), barrier / n_steps
 
 
 def loss_physics_barrier(model, states, mlparams, dt=None, n_steps=None):

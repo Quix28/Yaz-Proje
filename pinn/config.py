@@ -121,6 +121,8 @@ EARLY_STOP_MIN_EPOCH_FRAC = 0.70  # matches RAMP_FRAC: L_data plateaus fast
 
 # ------------------------------------------------------ physics rollout ---
 PHYS_N = 10                # rollout horizon for L_physics (5-20)
+MPC_R = 1e-2               # force weight in the teacher's objective (mpc.py default R)
+PHYS_J0_FLOOR = 1.0        # added to x0'Px0 in L_physics' ratio so x0 ~ 0 stays finite
 # MPC's own Q diagonal -- weight state deviation the way the teacher does.
 # Imported, not copied: losses.L_physics and baselines' LQR both read this, and
 # a hand-copied literal here meant editing mpc.py's Q left all three disagreeing.
