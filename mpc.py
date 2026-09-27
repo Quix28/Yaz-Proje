@@ -171,6 +171,14 @@ class MPCController:
             Qf = 10 * Q
         self.Q, self.Qf, self.R = Q, Qf, R
 
+        # Dynamics as SX functions: the 3x3 mass-matrix solve is then symbolic,
+        # which lets IPOPT's NLP be expanded to SX ('expand' below). Built on MX
+        # directly, ca.solve becomes a LinsolQr node that cannot be expanded,
+        # and cold solves ran ~10 s instead of well under one.
+        xs, us = ca.SX.sym("x", NX), ca.SX.sym("u")
+        f_step = ca.Function("step", [xs, us], [_rk4_step(xs, us, params, dt)])
+        f_dyn = ca.Function("dyn", [xs, us], [_dynamics(xs, us, params)])
+
         opti = ca.Opti()
         X = opti.variable(NX, Np + 1)
         U = opti.variable(NU, Np)
@@ -181,9 +189,9 @@ class MPCController:
         for k in range(Np):
             dx = X[:, k] - xref_param
             J += ca.mtimes([dx.T, Q, dx]) + R * U[0, k]**2
-            opti.subject_to(X[:, k + 1] == _rk4_step(X[:, k], U[0, k], params, dt))
+            opti.subject_to(X[:, k + 1] == f_step(X[:, k], U[0, k]))
 
-            xdot_k = _dynamics(X[:, k], U[0, k], params)
+            xdot_k = f_dyn(X[:, k], U[0, k])
             opti.subject_to(opti.bounded(-sddot_max, xdot_k[3], sddot_max))
 
             # torque-speed derate: force available shrinks to 0 as cart
@@ -215,7 +223,7 @@ class MPCController:
         # iters). Adaptive barrier + gradient scaling converges in a few
         # hundred. acceptable_* certifies a near-optimal point if the last
         # digits of convergence get expensive.
-        opti.solver('ipopt', {'print_time': 0},
+        opti.solver('ipopt', {'print_time': 0, 'expand': True},
                     {'print_level': 0, 'sb': 'yes',
                      'mu_strategy': 'adaptive',
                      'nlp_scaling_method': 'gradient-based',
