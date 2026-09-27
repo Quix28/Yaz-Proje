@@ -87,7 +87,10 @@ def train(dataset_path=None, epochs=None, out_ckpt=None, init_ckpt=None,
 
     try:
         data = ds.load_dataset(dataset_path)
-        stats = ds.load_norm_stats()
+        # From the dataset being trained, not the global norm_stats.npz: that
+        # file belongs to whichever dataset was generated last. Only a fresh
+        # model uses this -- a warm start keeps its checkpoint's buffers.
+        stats = ds.compute_norm_stats(data, save=False)
 
         tr_mask, va_mask = _grouped_split(data["config_id"], C.VAL_CONFIG_FRAC, rng)
         train_loader = _make_loader(data, tr_mask, C.BATCH_SIZE, shuffle=True)
