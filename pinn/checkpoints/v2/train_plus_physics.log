@@ -1,0 +1,16 @@
+[epoch   0] val_data_mse=3.8381 val_combined=651.4015 best=651.4015@0  w=(1.00,0.00,0.00,0.00)
+[epoch  20] val_data_mse=1.5671 val_combined=432.1188 best=300.4881@6  w=(1.00,0.00,0.00,0.00)
+[epoch  40] val_data_mse=1.3335 val_combined=280.4490 best=243.5656@35  w=(1.00,0.00,0.00,0.00)
+[epoch  60] val_data_mse=1.4812 val_combined=38.0674 best=38.0674@60  w=(1.00,0.00,0.00,0.00)
+[epoch  80] val_data_mse=1.3063 val_combined=11.7170 best=11.7170@80  w=(0.91,0.14,0.00,0.00)
+[epoch 100] val_data_mse=1.3332 val_combined=11.1951 best=11.1679@95  w=(0.81,0.27,0.00,0.00)
+[epoch 120] val_data_mse=1.3544 val_combined=10.8241 best=10.7155@119  w=(0.72,0.40,0.00,0.00)
+[epoch 140] val_data_mse=1.4889 val_combined=10.7450 best=10.5174@136  w=(0.62,0.54,0.00,0.00)
+[epoch 160] val_data_mse=1.5959 val_combined=10.6422 best=10.3975@157  w=(0.53,0.67,0.00,0.00)
+[epoch 180] val_data_mse=1.7169 val_combined=10.7352 best=10.2988@174  w=(0.44,0.80,0.00,0.00)
+[epoch 200] val_data_mse=1.9685 val_combined=10.2877 best=10.2645@196  w=(0.34,0.94,0.00,0.00)
+[epoch 220] val_data_mse=2.0204 val_combined=11.4122 best=10.2055@208  w=(0.30,1.00,0.00,0.00)
+[epoch 240] val_data_mse=2.1524 val_combined=10.3516 best=10.2055@208  w=(0.30,1.00,0.00,0.00)
+[early stop] no val improvement for 40 epochs
+[train] best val_combined=10.2055 @epoch 208 -> pinn/checkpoints/v2/ablation_plus_physics.pt
+TRAIN_DONE

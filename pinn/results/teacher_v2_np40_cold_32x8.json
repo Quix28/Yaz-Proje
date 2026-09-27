@@ -1,0 +1,1 @@
+{"n": 256, "success_rate": 0.78515625, "diverged_rate": 0.2109375, "steps_survived_mean": 121.55078125, "settling_time_mean": 2.0987562189054727, "control_effort_mean": 51.18300914884812, "peak_s_mean": 0.14251337265853103, "peak_th1_mean": 0.3192548016970035, "peak_th2_mean": 0.21155036513944891, "upright_to_end_rate": 0.7890625}

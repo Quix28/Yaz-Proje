@@ -1,0 +1,14 @@
+[epoch   0] val_data_mse=3.5028 val_combined=1.0508 best=1.0508@0  w=(1.00,0.00,0.00,0.00)
+[epoch  20] val_data_mse=1.4350 val_combined=0.4305 best=0.4284@19  w=(1.00,0.00,0.00,0.00)
+[epoch  40] val_data_mse=1.2613 val_combined=0.3784 best=0.3670@32  w=(1.00,0.00,0.00,0.00)
+[epoch  60] val_data_mse=1.2057 val_combined=0.3617 best=0.3388@59  w=(1.00,0.00,0.00,0.00)
+[epoch  80] val_data_mse=1.2192 val_combined=0.3658 best=0.3186@70  w=(0.91,0.00,0.00,0.00)
+[epoch 100] val_data_mse=1.1354 val_combined=0.3406 best=0.3186@70  w=(0.81,0.00,0.00,0.00)
+[epoch 120] val_data_mse=1.1442 val_combined=0.3433 best=0.3186@70  w=(0.72,0.00,0.00,0.00)
+[epoch 140] val_data_mse=1.1873 val_combined=0.3562 best=0.3186@70  w=(0.62,0.00,0.00,0.00)
+[epoch 160] val_data_mse=1.2661 val_combined=0.3798 best=0.3186@70  w=(0.53,0.00,0.00,0.00)
+[epoch 180] val_data_mse=1.2330 val_combined=0.3699 best=0.3186@70  w=(0.44,0.00,0.00,0.00)
+[epoch 200] val_data_mse=1.2767 val_combined=0.3830 best=0.3186@70  w=(0.34,0.00,0.00,0.00)
+[early stop] no val improvement for 40 epochs
+[train] best val_combined=0.3186 @epoch 70 -> pinn/checkpoints/v2/stable/ablation_data_only.pt
+TRAIN_DONE

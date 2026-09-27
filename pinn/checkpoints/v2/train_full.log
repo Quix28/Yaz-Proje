@@ -1,0 +1,15 @@
+[epoch   0] val_data_mse=3.8381 val_combined=651.9641 best=651.9641@0  w=(1.00,0.00,0.00,0.00)
+[epoch  20] val_data_mse=1.5671 val_combined=432.8546 best=301.2210@6  w=(1.00,0.00,0.00,0.00)
+[epoch  40] val_data_mse=1.3335 val_combined=280.9622 best=244.1122@35  w=(1.00,0.00,0.00,0.00)
+[epoch  60] val_data_mse=1.2762 val_combined=87.6332 best=87.6332@60  w=(1.00,0.00,0.00,0.00)
+[epoch  80] val_data_mse=1.3333 val_combined=13.8530 best=13.7388@78  w=(0.91,0.14,0.07,0.01)
+[epoch 100] val_data_mse=1.5623 val_combined=12.5366 best=12.5366@100  w=(0.81,0.27,0.13,0.03)
+[epoch 120] val_data_mse=1.6326 val_combined=13.4088 best=11.9376@116  w=(0.72,0.40,0.20,0.04)
+[epoch 140] val_data_mse=2.1408 val_combined=11.3595 best=11.3595@140  w=(0.62,0.54,0.27,0.05)
+[epoch 160] val_data_mse=2.4438 val_combined=11.1989 best=11.1989@160  w=(0.53,0.67,0.34,0.07)
+[epoch 180] val_data_mse=2.6025 val_combined=11.5729 best=11.0033@177  w=(0.44,0.80,0.40,0.08)
+[epoch 200] val_data_mse=2.9326 val_combined=11.2504 best=10.8955@198  w=(0.34,0.94,0.47,0.09)
+[epoch 220] val_data_mse=3.2414 val_combined=11.6523 best=10.8955@198  w=(0.30,1.00,0.50,0.10)
+[early stop] no val improvement for 40 epochs
+[train] best val_combined=10.8955 @epoch 198 -> pinn/checkpoints/v2/full.pt
+TRAIN_DONE
