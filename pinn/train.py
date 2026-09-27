@@ -79,10 +79,11 @@ def train(dataset_path=None, epochs=None, out_ckpt=None, init_ckpt=None,
 
     # optional ablation: pin certain target weights to zero for the whole run
     saved = {}
+    # keys are loss_weights() names (w_phys); the config constants are W_PHYS
     if weight_overrides:
         for k, v in weight_overrides.items():
-            saved[k] = getattr(C, k)
-            setattr(C, k, v)
+            saved[k.upper()] = getattr(C, k.upper())
+            setattr(C, k.upper(), v)
 
     try:
         data = ds.load_dataset(dataset_path)
