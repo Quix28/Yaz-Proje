@@ -23,8 +23,10 @@ from mpc import MOTOR_FORCE_MAX, MOTOR_FREE_SPEED, Q_DIAG  # noqa: E402  single 
 PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(PACKAGE_DIR, "data")
 CKPT_DIR = os.path.join(PACKAGE_DIR, "checkpoints")
-SEED_DATASET = os.path.join(DATA_DIR, "seed_dataset.npz")
-NORM_STATS = os.path.join(DATA_DIR, "norm_stats.npz")
+# v2: cold-solved labels from the Np=40 / Qf=P teacher. seed_dataset.npz (v1)
+# is kept for reference only -- its labels depend on solve order, not state.
+SEED_DATASET = os.path.join(DATA_DIR, "seed_v2.npz")
+NORM_STATS = os.path.join(DATA_DIR, "norm_stats_v2.npz")
 RESULTS_DIR = os.path.join(PACKAGE_DIR, "results")
 
 # ------------------------------------------------------------- actuator ---
@@ -58,8 +60,12 @@ STATE_PERT = np.array([0.05, 0.15, 0.15, 0.05, 0.30, 0.30])
 COLLOC_STATE_PERT = np.array([0.08, 0.30, 0.30, 0.10, 0.60, 0.60])
 
 # --------------------------------------------------- dataset generation ---
-N_CONFIGS = 200            # distinct pendulum configs
-N_STATES_PER_CONFIG = 80   # initial states solved per config
+N_CONFIGS = 1024           # distinct pendulum configs (power of 2 for Sobol)
+N_STATES_PER_CONFIG = 16   # initial states solved per config. v1 used 200 x 80:
+                           # the net memorized each config (train MSE -> 0.08,
+                           # val rising from epoch 1) and a linear fit beat it on
+                           # held-out configs. Generalizing over (m, l) needs many
+                           # configs more than many states per config.
 DT = 0.05
 MPC_NP = 40                # 2.0 s horizon. 20 (1.0 s) is shorter than the cart-
                            # recentring timescale: 1.6% closed-loop success vs 56%
