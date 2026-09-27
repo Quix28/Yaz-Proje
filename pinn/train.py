@@ -26,13 +26,19 @@ from pinn import losses as L
 from pinn.model import PINNPolicy, save_checkpoint, load_checkpoint
 
 
-def _grouped_split(config_ids, val_frac, rng):
-    """Hold out a fraction of *configs* (not rows) for validation."""
-    uniq = np.unique(config_ids)
-    rng.shuffle(uniq)
-    n_val = max(1, int(round(len(uniq) * val_frac)))
-    val_configs = set(uniq[:n_val].tolist())
-    val_mask = np.array([cid in val_configs for cid in config_ids])
+def _grouped_split(config_ids, val_frac):
+    """
+    Hold out a fraction of *configs* (not rows) for validation.
+
+    Membership is a fixed multiplicative hash of the config id, so a config
+    stays on the same side of the split when DAgger rounds add new ones. The
+    old split reshuffled the whole id set each round, which moved configs the
+    warm-started model had trained on into validation; the leaked val loss
+    then made "change nothing" look best, and rounds were checkpointed at
+    epoch 1-27 -- DAgger was barely retraining.
+    """
+    h = (np.asarray(config_ids, dtype=np.uint64) * np.uint64(2654435761)) % np.uint64(2**32)
+    val_mask = h < np.uint64(val_frac * 2**32)
     return ~val_mask, val_mask
 
 
@@ -92,7 +98,7 @@ def train(dataset_path=None, epochs=None, out_ckpt=None, init_ckpt=None,
         # model uses this -- a warm start keeps its checkpoint's buffers.
         stats = ds.compute_norm_stats(data, save=False)
 
-        tr_mask, va_mask = _grouped_split(data["config_id"], C.VAL_CONFIG_FRAC, rng)
+        tr_mask, va_mask = _grouped_split(data["config_id"], C.VAL_CONFIG_FRAC)
         train_loader = _make_loader(data, tr_mask, C.BATCH_SIZE, shuffle=True)
         val_loader = _make_loader(data, va_mask, C.BATCH_SIZE, shuffle=False)
 
