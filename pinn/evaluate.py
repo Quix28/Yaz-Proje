@@ -167,7 +167,7 @@ def make_lqr_policy(**lqr_kwargs):
     return make_policy
 
 
-def make_mpc_policy(qf_lqr=False, **mpc_kwargs):
+def make_mpc_policy(qf_lqr=False, cold=False, **mpc_kwargs):
     """The MPC teacher itself, as an evaluate_policy-compatible force policy.
 
     Exists so the teacher can be scored on the SAME metric as its students.
@@ -179,6 +179,11 @@ def make_mpc_policy(qf_lqr=False, **mpc_kwargs):
     qf_lqr: use the infinite-horizon LQR cost-to-go as the terminal cost instead
     of the arbitrary Qf = 10*Q. A terminal cost that approximates the true
     value function is what lets a SHORT horizon behave like a long one.
+
+    cold: re-solve from zeros every step instead of warm-starting from the
+    shifted previous solution. Counter-intuitively better closed-loop: at
+    Np=40, Qf=P it lifts centre-IC success 0.562 -> 0.750 -- the warm start
+    keeps the solver in the basin of a previous, worse plan.
     """
     from mpc import MPCController
 
@@ -192,7 +197,7 @@ def make_mpc_policy(qf_lqr=False, **mpc_kwargs):
 
         def policy(state):
             try:
-                return ctrl.solve(state)[0]
+                return ctrl.solve(state, cold=cold)[0]
             except RuntimeError:
                 # Same warm-start reset dataset.py:80 uses after a failed solve:
                 # a poisoned previous iterate makes every later solve fail too.
@@ -353,6 +358,8 @@ if __name__ == "__main__":
                          "it can be swept; omit to use the MPCController default.")
     ap.add_argument("--mpc-qf-lqr", action="store_true",
                     help="use the LQR cost-to-go as MPC terminal cost instead of Qf=10*Q")
+    ap.add_argument("--mpc-cold", action="store_true",
+                    help="cold-start every MPC solve (zeros) instead of warm-starting")
     ap.add_argument("--mpc-thdot-max", type=float, default=None,
                     help="angular-rate constraint for --mpc (mpc.py wires this but never passes it)")
     ap.add_argument("--n-configs", type=int, default=10)
@@ -394,6 +401,7 @@ if __name__ == "__main__":
                       "dataset": args.dataset or C.SEED_DATASET,
                       "motor_force_max": float(MOTOR_FORCE_MAX),
                       "mpc_np": args.mpc_np, "mpc_qf_lqr": args.mpc_qf_lqr,
+                      "mpc_cold": args.mpc_cold,
                       "mpc_thdot_max": args.mpc_thdot_max,
                       "git_commit": _git_commit()}}
 
@@ -405,14 +413,14 @@ if __name__ == "__main__":
             mpc_kw["thdot_max"] = args.mpc_thdot_max
         rng = np.random.default_rng(args.seed + C.EVAL_SEED_OFFSET)
         cfgs = sample_interp_configs(args.n_configs, rng, dataset_path=args.dataset)
-        rows = evaluate_policy(make_mpc_policy(qf_lqr=args.mpc_qf_lqr, **mpc_kw),
+        rows = evaluate_policy(make_mpc_policy(qf_lqr=args.mpc_qf_lqr, cold=args.mpc_cold, **mpc_kw),
                                cfgs, args.n_ics, args.steps, seed=args.seed,
                                ic_sampler=sampler)
         s = summarize(rows, steps=args.steps)
         s["rows"] = rows
         out["mpc_teacher"] = s
         print(f"[mpc teacher] Np={args.mpc_np or 'default'} qf_lqr={args.mpc_qf_lqr} "
-              f"thdot_max={args.mpc_thdot_max}\n"
+              f"cold={args.mpc_cold} thdot_max={args.mpc_thdot_max}\n"
               f"  success={s['success_rate']:.3f} diverged={s['diverged_rate']:.3f} "
               f"steps={s['steps_survived_mean']:.0f}/{args.steps + 1} "
               f"settle={s['settling_time_mean']:.2f} peak_s={s['peak_s_mean']:.4f} "
