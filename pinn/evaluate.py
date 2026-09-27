@@ -369,6 +369,9 @@ if __name__ == "__main__":
                     help="epochs for any ablation/baseline training this triggers "
                          "(default config.EPOCHS=300, ~16 min per variant)")
     ap.add_argument("--dataset", default=None, help="dataset .npz for triggered training")
+    ap.add_argument("--ckpt-dir", default=None,
+                    help="where ablation_*.pt variants live (default pinn/checkpoints); "
+                         "missing variants are trained there")
     ap.add_argument("--center-ics", action="store_true",
                     help="centre-only ICs instead of the off-centre/push mixture")
     ap.add_argument("--seed", type=int, default=C.SEED,
@@ -383,7 +386,7 @@ if __name__ == "__main__":
     sampler = sample_center_states if args.center_ics else None
     common = dict(n_configs=args.n_configs, n_ics=args.n_ics, steps=args.steps,
                   epochs=args.epochs, dataset_path=args.dataset, ic_sampler=sampler,
-                  seed=args.seed)
+                  seed=args.seed, ckpt_dir=args.ckpt_dir)
 
     def _git_commit():
         try:
@@ -399,6 +402,7 @@ if __name__ == "__main__":
                       "steps": args.steps, "n_configs": args.n_configs,
                       "n_ics": args.n_ics, "seed": args.seed, "epochs": args.epochs,
                       "dataset": args.dataset or C.SEED_DATASET,
+                      "ckpt_dir": args.ckpt_dir or C.CKPT_DIR,
                       "motor_force_max": float(MOTOR_FORCE_MAX),
                       "mpc_np": args.mpc_np, "mpc_qf_lqr": args.mpc_qf_lqr,
                       "mpc_cold": args.mpc_cold,
